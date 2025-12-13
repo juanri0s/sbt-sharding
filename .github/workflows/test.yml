@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     env:
       GITHUB_SHARD: ${{ matrix.shard }}
     steps:
@@ -44,7 +44,7 @@ jobs:
         id: shard
         uses: ./
         with:
-          max-shards: 2
+          max-shards: 3
           algorithm: test-file-count
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala'
 

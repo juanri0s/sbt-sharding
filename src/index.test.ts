@@ -145,6 +145,14 @@ describe('testFileToSbtCommand', () => {
     const result = testFileToSbtCommand('src/test/scala/com/example/MyTest');
     expect(result).toBe('testOnly com.example.MyTest');
   });
+
+  it('should return empty string when testClass is empty after processing', () => {
+    const result = testFileToSbtCommand('src/test/scala/.scala');
+    expect(result).toBe('');
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      'Could not convert test file path to class name: src/test/scala/.scala'
+    );
+  });
 });
 
 describe('shardByTestFileCount', () => {
@@ -461,5 +469,25 @@ describe('run', () => {
       'src/test/scala/com/example/Test2.scala'
     );
     expect(mockCore.warning).not.toHaveBeenCalled();
+  });
+
+  it('should handle error and call setFailed', async () => {
+    mockCore.getInput.mockImplementation(() => {
+      throw new Error('Input error');
+    });
+
+    await run();
+
+    expect(mockCore.setFailed).toHaveBeenCalledWith('Input error');
+  });
+
+  it('should handle non-Error exceptions', async () => {
+    mockCore.getInput.mockImplementation(() => {
+      throw 'String error';
+    });
+
+    await run();
+
+    expect(mockCore.setFailed).toHaveBeenCalledWith('String error');
   });
 });

@@ -11,6 +11,13 @@ dist/
 .npm
 .pnpm-store/
 pnpm-lock.yaml
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# ESLint
+.eslintcache
 
 # IDE
 .idea/

@@ -2,9 +2,9 @@ name: Test Action
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test-action:
@@ -16,28 +16,37 @@ jobs:
       GITHUB_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-      
+
       - name: Enable corepack
         run: corepack enable
-      
+
       - name: Install dependencies
         run: pnpm install
-      
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Run tests
+        run: pnpm test:coverage
+
       - name: Build action
         run: pnpm run build
-      
+
       - name: Test sharding
         id: shard
         uses: ./
         with:
           max-shards: 2
           algorithm: test-file-count
-      
+
       - name: Display shard info
         run: |
           echo "Shard: ${{ steps.shard.outputs.shard-number }}/${{ steps.shard.outputs.total-shards }}"

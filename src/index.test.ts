@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock @actions/core before importing
 vi.mock('@actions/core', () => ({
   getInput: vi.fn(),
   setOutput: vi.fn(),
@@ -10,7 +9,6 @@ vi.mock('@actions/core', () => ({
   exportVariable: vi.fn(),
 }));
 
-// Mock glob before importing
 vi.mock('glob', async () => {
   const actual = await vi.importActual('glob');
   return {
@@ -23,7 +21,6 @@ import * as core from '@actions/core';
 import { glob } from 'glob';
 import { discoverTestFiles, testFileToSbtCommand, shardByTestFileCount, run } from './index.js';
 
-// Type assertions for mocked functions
 const mockGlob = glob as ReturnType<typeof vi.fn>;
 const mockCore = core as {
   getInput: ReturnType<typeof vi.fn>;

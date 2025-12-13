@@ -37,7 +37,7 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
-      - name: Run tests
+      - name: Run action tests
         run: pnpm test:coverage
 
       - name: Build action

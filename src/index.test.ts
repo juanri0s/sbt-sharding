@@ -297,7 +297,7 @@ describe('run', () => {
       if (key === 'shard-number') return '';
       return '';
     });
-    
+
     delete process.env.GITHUB_SHARD;
 
     mockGlob.mockResolvedValue([
@@ -409,13 +409,16 @@ describe('run', () => {
       if (key === 'shard-number') return '10';
       return '';
     });
-    
+
     mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
 
     await run();
 
     expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '10');
-    expect(mockCore.setOutput).toHaveBeenCalledWith('test-files', 'src/test/scala/com/example/Test1.scala');
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-files',
+      'src/test/scala/com/example/Test1.scala'
+    );
   });
 
   it('should log test files and commands when shard has files', async () => {
@@ -443,14 +446,20 @@ describe('run', () => {
       if (key === 'shard-number') return '3';
       return '';
     });
-    
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala', 'src/test/scala/com/example/Test2.scala']);
+
+    mockGlob.mockResolvedValue([
+      'src/test/scala/com/example/Test1.scala',
+      'src/test/scala/com/example/Test2.scala',
+    ]);
 
     await run();
 
     expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '3');
     expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '2');
-    expect(mockCore.setOutput).toHaveBeenCalledWith('test-files', 'src/test/scala/com/example/Test2.scala');
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-files',
+      'src/test/scala/com/example/Test2.scala'
+    );
     expect(mockCore.warning).not.toHaveBeenCalled();
   });
 });

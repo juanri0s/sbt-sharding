@@ -23,3 +23,6 @@ coverage/
 .idea/
 .vscode/
 *.iml
+
+# Test fixtures (keep these)
+!test-fixtures/

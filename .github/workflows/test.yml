@@ -40,15 +40,20 @@ jobs:
       - name: Build action
         run: pnpm run build
 
-      - name: Test sharding
+      - name: Test sharding with Scala test files
         id: shard
         uses: ./
         with:
           max-shards: 2
           algorithm: test-file-count
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala'
 
       - name: Display shard info
         run: |
           echo "Shard: ${{ steps.shard.outputs.shard-number }}/${{ steps.shard.outputs.total-shards }}"
           echo "Test files: ${{ steps.shard.outputs.test-files }}"
           echo "Commands: ${{ steps.shard.outputs.test-commands }}"
+          if [ -z "${{ steps.shard.outputs.test-files }}" ]; then
+            echo "ERROR: No test files found!"
+            exit 1
+          fi

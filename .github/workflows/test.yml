@@ -52,7 +52,7 @@ jobs:
         with:
           max-shards: 3
           algorithm: test-file-count
-          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala'
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           test-env-vars: 'TEST_ENV_VAR,ANOTHER_VAR'
 
       - name: Display shard info (test-file-count)
@@ -75,7 +75,7 @@ jobs:
         with:
           max-shards: 3
           algorithm: complexity
-          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala'
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
 
       - name: Display shard info (complexity)
         run: |
@@ -109,7 +109,7 @@ jobs:
         with:
           auto-shard: true
           algorithm: test-file-count
-          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala'
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           shard-number: 1
 
   test-dynamic-matrix-execution:
@@ -137,7 +137,7 @@ jobs:
         with:
           auto-shard: true
           algorithm: test-file-count
-          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala'
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           shard-number: ${{ matrix.shard }}
       - name: Validate shard
         run: |

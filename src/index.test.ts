@@ -19,6 +19,20 @@ vi.mock('glob', async () => {
   };
 });
 
+vi.mock('path', async () => {
+  const actual = await vi.importActual('path');
+  return {
+    ...actual,
+    resolve: vi.fn((...args) => {
+      // Throw error for specific test case
+      if (args[0]?.includes('THROW_ERROR')) {
+        throw new Error('Path resolve error');
+      }
+      return actual.resolve(...args);
+    }),
+  };
+});
+
 import * as core from '@actions/core';
 import { glob } from 'glob';
 import {
@@ -337,6 +351,21 @@ describe('run', () => {
     expect(mockCore.setFailed).toHaveBeenCalledWith('max-shards must be a positive integer');
   });
 
+  it('should throw error for max-shards exceeding limit', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '101';
+      return '';
+    });
+
+    await run();
+
+    expect(mockCore.setFailed).toHaveBeenCalledWith('max-shards cannot exceed 100');
+  });
+
   it('should throw error for NaN max-shards', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
@@ -556,6 +585,70 @@ describe('run', () => {
 
     delete process.env.JAVA_OPTS;
     delete process.env.SCALA_VERSION;
+  });
+
+  it('should skip invalid environment variable names', async () => {
+    process.env.VALID_VAR = 'value';
+    process.env.INVALID_VAR = 'value';
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'round-robin';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'test-env-vars') return 'VALID_VAR,INVALID-VAR,123INVALID';
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid environment variable name')
+    );
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-commands',
+      expect.stringMatching(/VALID_VAR=value/)
+    );
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-commands',
+      expect.not.stringMatching(/INVALID-VAR|123INVALID/)
+    );
+
+    delete process.env.VALID_VAR;
+    delete process.env.INVALID_VAR;
+  });
+
+  it('should sanitize environment variable values', async () => {
+    process.env.TEST_VAR = 'value;rm -rf /';
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'round-robin';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'test-env-vars') return 'TEST_VAR';
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    const setOutputCalls = (mockCore.setOutput as ReturnType<typeof vi.fn>).mock.calls;
+    const testCommandsCall = setOutputCalls.find((call) => call[0] === 'test-commands');
+    expect(testCommandsCall).toBeDefined();
+    expect(testCommandsCall[1]).toContain('TEST_VAR=');
+    // Verify dangerous characters are sanitized (replaced with _)
+    expect(testCommandsCall[1]).not.toContain('value;rm');
+    expect(testCommandsCall[1]).toMatch(/TEST_VAR=value_rm/);
+
+    delete process.env.TEST_VAR;
   });
 
   it('should skip missing environment variables', async () => {
@@ -906,5 +999,83 @@ describe('shardByComplexity', () => {
     expect(result).toHaveLength(2);
     const complexShard = result.find((shard) => shard.includes(complexFile));
     expect(complexShard).toBeDefined();
+  });
+
+  it('should reject path traversal attempts', () => {
+    const testFile = join(testDir, 'Test.scala');
+    writeFileSync(testFile, 'class Test');
+
+    // Mock core.warning to verify it's called
+    const mockWarning = vi.spyOn(core, 'warning');
+
+    // Test with path traversal
+    const maliciousPath = join(testDir, '..', '..', 'etc', 'passwd');
+    const score = analyzeTestComplexity(maliciousPath);
+
+    // Should return base score without reading file
+    expect(score).toBeGreaterThanOrEqual(1);
+    expect(mockWarning).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid file path detected (possible path traversal)')
+    );
+
+    mockWarning.mockRestore();
+  });
+
+  it('should handle absolute paths outside base directory', () => {
+    // Mock core.warning to verify it's called
+    const mockWarning = vi.spyOn(core, 'warning');
+
+    // Use an absolute path that's clearly outside the test directory
+    // On Unix systems, /etc/passwd is a common target
+    // On Windows, we'll use a path that should be outside
+    const maliciousPath =
+      process.platform === 'win32' ? 'C:\\Windows\\System32\\config\\sam' : '/etc/passwd';
+
+    const score = analyzeTestComplexity(maliciousPath);
+
+    // Should return base score without reading file
+    expect(score).toBeGreaterThanOrEqual(1);
+    // Should warn about path traversal
+    expect(mockWarning).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid file path detected (possible path traversal)')
+    );
+
+    mockWarning.mockRestore();
+  });
+
+  it('should handle path resolve errors gracefully', () => {
+    // Mock core.warning to verify it's called
+    const mockWarning = vi.spyOn(core, 'warning');
+
+    // Use a path that will cause resolve to throw
+    const invalidPath = 'THROW_ERROR/path';
+    const score = analyzeTestComplexity(invalidPath);
+
+    // Should return base score without reading file
+    expect(score).toBeGreaterThanOrEqual(1);
+    // Should handle gracefully without crashing
+    expect(mockWarning).toHaveBeenCalled();
+
+    mockWarning.mockRestore();
+  });
+
+  it('should reject files that are too large', () => {
+    const largeFile = join(testDir, 'LargeTest.scala');
+    // Create a file larger than MAX_FILE_SIZE (10MB)
+    const largeContent = 'x'.repeat(11 * 1024 * 1024);
+    writeFileSync(largeFile, largeContent);
+
+    // Mock core.warning to verify it's called
+    const mockWarning = vi.spyOn(core, 'warning');
+
+    const score = analyzeTestComplexity(largeFile);
+
+    // Should return base score without reading full file
+    expect(score).toBeGreaterThanOrEqual(1);
+    expect(mockWarning).toHaveBeenCalledWith(
+      expect.stringContaining('File too large for complexity analysis')
+    );
+
+    mockWarning.mockRestore();
   });
 });

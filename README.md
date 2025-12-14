@@ -112,7 +112,6 @@ jobs:
     strategy:
       matrix:
         shard: [1, 2, 3, 4, 5]
-    env:
     steps:
       - uses: actions/checkout@v4
 

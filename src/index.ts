@@ -1,7 +1,7 @@
 import * as core from '@actions/core';
 import { glob } from 'glob';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, statSync } from 'fs';
+import { join, resolve, relative } from 'path';
 
 export async function discoverTestFiles(testPattern: string): Promise<string[]> {
   const patterns = testPattern.split(',').map((p) => p.trim());
@@ -54,6 +54,20 @@ interface TestComplexity {
   score: number;
 }
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB limit
+
+function isValidTestFilePath(filePath: string, baseDir: string): boolean {
+  try {
+    const resolved = resolve(filePath);
+    const baseResolved = resolve(baseDir);
+    const relativePath = relative(baseResolved, resolved);
+    // Prevent path traversal - ensure the resolved path is within baseDir
+    return !relativePath.startsWith('..') && !relativePath.includes('..');
+  } catch {
+    return false;
+  }
+}
+
 export function analyzeTestComplexity(testFile: string): number {
   let score = 1;
 
@@ -81,7 +95,24 @@ export function analyzeTestComplexity(testFile: string): number {
   }
 
   try {
-    const filePath = testFile.startsWith('/') ? testFile : join(process.cwd(), testFile);
+    const baseDir = process.cwd();
+    const filePath = testFile.startsWith('/') ? testFile : join(baseDir, testFile);
+
+    // Validate path to prevent path traversal
+    if (!isValidTestFilePath(filePath, baseDir)) {
+      core.warning(`Invalid file path detected (possible path traversal): ${testFile}`);
+      return score;
+    }
+
+    // Check file size before reading to prevent DoS
+    const stats = statSync(filePath);
+    if (stats.size > MAX_FILE_SIZE) {
+      core.warning(
+        `File too large for complexity analysis (${stats.size} bytes > ${MAX_FILE_SIZE}): ${testFile}`
+      );
+      return score;
+    }
+
     const content = readFileSync(filePath, 'utf-8').toLowerCase();
 
     if (content.includes('property') || content.includes('proptest')) {
@@ -227,6 +258,10 @@ export async function run(): Promise<void> {
       if (isNaN(maxShards) || maxShards < 1) {
         throw new Error('max-shards must be a positive integer');
       }
+      // Prevent DoS by limiting max shards
+      if (maxShards > 100) {
+        throw new Error('max-shards cannot exceed 100');
+      }
     }
 
     core.info(`Using ${algorithm} algorithm to distribute tests across ${maxShards} shard(s)`);
@@ -278,14 +313,30 @@ export async function run(): Promise<void> {
 
     let finalCommands = testCommands.join(' ');
     if (testEnvVars) {
+      // Validate env var names to prevent injection
+      const envVarNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
       const envVarList = testEnvVars
         .split(',')
         .map((v) => v.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .filter((name) => {
+          if (!envVarNamePattern.test(name)) {
+            core.warning(`Invalid environment variable name (skipped): ${name}`);
+            return false;
+          }
+          return true;
+        });
+
       const envVars = envVarList
         .map((varName) => {
           const value = process.env[varName];
-          return value ? `${varName}=${value}` : null;
+          if (!value) {
+            return null;
+          }
+          // Sanitize env var value to prevent command injection
+          // Replace potentially dangerous characters with underscores
+          const sanitizedValue = value.replace(/[;&|$`<>]/g, '_');
+          return `${varName}=${sanitizedValue}`;
         })
         .filter((v): v is string => v !== null);
 

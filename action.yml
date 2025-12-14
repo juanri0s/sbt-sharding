@@ -3,10 +3,14 @@ description: 'Automatically shard Scala tests for parallel execution in CI'
 author: 'juanri0s'
 inputs:
   max-shards:
-    description: 'Maximum number of shards to split tests into'
-    required: true
+    description: 'Maximum number of shards to split tests into (ignored if auto-shard is true)'
+    required: false
+  auto-shard:
+    description: 'Automatically determine the number of shards based on test file count'
+    required: false
+    default: 'false'
   algorithm:
-    description: 'Sharding algorithm to use (currently supports: "test-file-count")'
+    description: 'Sharding algorithm to use (supports: "test-file-count", "complexity")'
     required: false
     default: 'test-file-count'
   test-pattern:
@@ -28,6 +32,8 @@ outputs:
     description: 'Comma-separated list of test files to run in this shard'
   test-commands:
     description: 'SBT commands to run tests for this shard'
+  shard-matrix:
+    description: 'JSON array of shard numbers for use in GitHub Actions matrix (e.g., [1,2,3])'
 runs:
   using: 'node24'
   main: 'dist/index.js'

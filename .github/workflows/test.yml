@@ -43,8 +43,8 @@ jobs:
       - name: Build action
         run: pnpm run build
 
-      - name: Test sharding with Scala test files
-        id: shard
+      - name: Test sharding with test-file-count algorithm
+        id: shard-count
         env:
           TEST_ENV_VAR: test-value-123
           ANOTHER_VAR: another-value
@@ -52,19 +52,98 @@ jobs:
         with:
           max-shards: 3
           algorithm: test-file-count
-          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala'
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           test-env-vars: 'TEST_ENV_VAR,ANOTHER_VAR'
 
-      - name: Display shard info
+      - name: Display shard info (test-file-count)
         run: |
-          echo "Shard: ${{ steps.shard.outputs.shard-number }}/${{ steps.shard.outputs.total-shards }}"
-          echo "Test files: ${{ steps.shard.outputs.test-files }}"
-          echo "Commands: ${{ steps.shard.outputs.test-commands }}"
-          if [ -z "${{ steps.shard.outputs.test-files }}" ]; then
+          echo "Shard: ${{ steps.shard-count.outputs.shard-number }}/${{ steps.shard-count.outputs.total-shards }}"
+          echo "Test files: ${{ steps.shard-count.outputs.test-files }}"
+          echo "Commands: ${{ steps.shard-count.outputs.test-commands }}"
+          if [ -z "${{ steps.shard-count.outputs.test-files }}" ]; then
             echo "ERROR: No test files found!"
             exit 1
           fi
-          if [[ ! "${{ steps.shard.outputs.test-commands }}" == *"TEST_ENV_VAR=test-value-123"* ]]; then
+          if [[ ! "${{ steps.shard-count.outputs.test-commands }}" == *"TEST_ENV_VAR=test-value-123"* ]]; then
             echo "ERROR: Environment variables not included in test commands!"
+            exit 1
+          fi
+
+      - name: Test sharding with complexity algorithm
+        id: shard-complexity
+        uses: ./
+        with:
+          max-shards: 3
+          algorithm: complexity
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
+
+      - name: Display shard info (complexity)
+        run: |
+          echo "Shard: ${{ steps.shard-complexity.outputs.shard-number }}/${{ steps.shard-complexity.outputs.total-shards }}"
+          echo "Test files: ${{ steps.shard-complexity.outputs.test-files }}"
+          echo "Commands: ${{ steps.shard-complexity.outputs.test-commands }}"
+          if [ -z "${{ steps.shard-complexity.outputs.test-files }}" ]; then
+            echo "ERROR: No test files found!"
+            exit 1
+          fi
+
+  test-auto-shard-matrix-generation:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.determine.outputs.shard-matrix }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - name: Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f
+        with:
+          node-version: '24'
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install
+      - name: Build action
+        run: pnpm run build
+      - name: Determine shards
+        id: determine
+        uses: ./
+        with:
+          auto-shard: true
+          algorithm: test-file-count
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
+          shard-number: 1
+
+  test-auto-shard-matrix-execution:
+    needs: test-auto-shard-matrix-generation
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.test-auto-shard-matrix-generation.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - name: Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f
+        with:
+          node-version: '24'
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install
+      - name: Build action
+        run: pnpm run build
+      - name: Shard Tests
+        id: shard
+        uses: ./
+        with:
+          auto-shard: true
+          algorithm: test-file-count
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
+          shard-number: ${{ matrix.shard }}
+      - name: Validate shard
+        run: |
+          echo "Shard: ${{ steps.shard.outputs.shard-number }}/${{ steps.shard.outputs.total-shards }}"
+          echo "Test files: ${{ steps.shard.outputs.test-files }}"
+          if [ -z "${{ steps.shard.outputs.test-files }}" ]; then
+            echo "ERROR: No test files found for shard ${{ matrix.shard }}!"
             exit 1
           fi

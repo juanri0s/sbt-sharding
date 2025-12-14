@@ -26,3 +26,6 @@ coverage/
 
 # Test fixtures (keep these)
 !test-fixtures/
+
+# Test temp directory
+test-temp/

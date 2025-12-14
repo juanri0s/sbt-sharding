@@ -118,10 +118,7 @@ export function analyzeTestComplexity(testFile: string): number {
   return score;
 }
 
-export function shardByComplexity(
-  testFiles: string[],
-  maxShards: number
-): string[][] {
+export function shardByComplexity(testFiles: string[], maxShards: number): string[][] {
   const totalFiles = testFiles.length;
   const actualShards = Math.min(maxShards, totalFiles);
 
@@ -171,10 +168,7 @@ export function shardByComplexity(
   return shards;
 }
 
-export function shardByTestFileCount(
-  testFiles: string[],
-  maxShards: number
-): string[][] {
+export function shardByTestFileCount(testFiles: string[], maxShards: number): string[][] {
   const totalFiles = testFiles.length;
   const actualShards = Math.min(maxShards, totalFiles);
 

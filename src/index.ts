@@ -12,6 +12,7 @@ async function getTestStepExecutionTime(): Promise<number> {
 
   const octokit = github.getOctokit(token);
   const context = github.context;
+  const currentJobName = process.env.GITHUB_JOB;
 
   try {
     const jobs = await octokit.rest.actions.listJobsForWorkflowRun({
@@ -20,13 +21,34 @@ async function getTestStepExecutionTime(): Promise<number> {
       run_id: context.runId,
     });
 
-    for (const job of jobs.data.jobs || []) {
+    core.debug(`Found ${jobs.data.jobs?.length || 0} jobs in workflow run`);
+    core.debug(`Current job name: ${currentJobName || 'unknown'}`);
+
+    // Prioritize current job if we can identify it
+    const sortedJobs = (jobs.data.jobs || []).sort((a, b) => {
+      if (currentJobName && a.name === currentJobName) return -1;
+      if (currentJobName && b.name === currentJobName) return 1;
+      // Prefer completed jobs
+      if (a.status === 'completed' && b.status !== 'completed') return -1;
+      if (b.status === 'completed' && a.status !== 'completed') return 1;
+      return 0;
+    });
+
+    for (const job of sortedJobs) {
+      core.debug(`Checking job: ${job.name} (status: ${job.status})`);
+      
       if (job.steps) {
         const completedSteps = job.steps.filter(
           (step) => step.completed_at && step.started_at && step.status === 'completed'
         );
 
+        core.debug(`Found ${completedSteps.length} completed steps in job ${job.name}`);
+
         if (completedSteps.length > 0) {
+          // Log step names for debugging
+          const stepNames = completedSteps.map((s) => s.name).join(', ');
+          core.debug(`Completed step names: ${stepNames}`);
+
           const testStep =
             completedSteps.find(
               (step) =>
@@ -39,14 +61,19 @@ async function getTestStepExecutionTime(): Promise<number> {
           if (testStep && testStep.completed_at && testStep.started_at) {
             const start = new Date(testStep.started_at).getTime();
             const end = new Date(testStep.completed_at).getTime();
-            return (end - start) / 1000;
+            const duration = (end - start) / 1000;
+            core.debug(`Found test step: ${testStep.name}, duration: ${duration}s`);
+            return duration;
           }
         }
       }
     }
+    
+    core.debug('No test step found with execution time');
     return 0;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    core.debug(`Error getting step execution time: ${errorMessage}`);
     throw new Error(`Failed to get step execution time: ${errorMessage}`);
   }
 }

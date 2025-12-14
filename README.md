@@ -29,7 +29,6 @@ jobs:
         with:
           max-shards: 4
           algorithm: round-robin
-          shard-number: ${{ matrix.shard }}
 
       - name: Run Tests
         run: sbt ${{ steps.shard.outputs.test-commands }}
@@ -57,7 +56,6 @@ jobs:
         with:
           auto-shard: true
           algorithm: round-robin
-          shard-number: 1
 
   test:
     needs: determine-shards
@@ -75,7 +73,6 @@ jobs:
         with:
           auto-shard: true
           algorithm: round-robin
-          shard-number: ${{ matrix.shard }}
       - name: Run Tests
         run: sbt ${{ steps.shard.outputs.test-commands }}
 
@@ -116,7 +113,6 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5]
     env:
-      GITHUB_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v4
 
@@ -136,26 +132,24 @@ jobs:
         env:
           JAVA_OPTS: -Xmx2g
         run: |
-          echo "Running tests in shard ${{ steps.shard.outputs.shard-number }}/${{ steps.shard.outputs.total-shards }}"
+          echo "Running tests in shard ${{ matrix.shard }}/${{ steps.shard.outputs.total-shards }}"
           sbt ${{ steps.shard.outputs.test-commands }}
 ```
 
 ## Inputs
 
-| Input           | Description                                                                                     | Required | Default                         |
-| --------------- | ----------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
-| `max-shards`    | Maximum number of shards to split tests into (ignored if `auto-shard` is true)                  | No       | -                               |
-| `auto-shard`    | Automatically determine the number of shards based on test file count                           | No       | `false`                         |
-| `algorithm`     | Sharding algorithm to use                                                                       | No       | `round-robin`                   |
-| `test-pattern`  | Comma-separated glob patterns for test files                                                    | No       | `**/*Test.scala,**/*Spec.scala` |
-| `shard-number`  | Current shard number (1-indexed). If not provided, uses `GITHUB_SHARD` env var or defaults to 1 | No       | `1` or `GITHUB_SHARD` env var   |
-| `test-env-vars` | Comma-separated list of environment variable names to include in test command output            | No       | -                               |
+| Input           | Description                                                                          | Required | Default                         |
+| --------------- | ------------------------------------------------------------------------------------ | -------- | ------------------------------- |
+| `max-shards`    | Maximum number of shards to split tests into (ignored if `auto-shard` is true)       | No       | -                               |
+| `auto-shard`    | Automatically determine the number of shards based on test file count                | No       | `false`                         |
+| `algorithm`     | Sharding algorithm to use                                                            | No       | `round-robin`                   |
+| `test-pattern`  | Comma-separated glob patterns for test files                                         | No       | `**/*Test.scala,**/*Spec.scala` |
+| `test-env-vars` | Comma-separated list of environment variable names to include in test command output | No       | -                               |
 
 ## Outputs
 
 | Output          | Description                                                                                              |
 | --------------- | -------------------------------------------------------------------------------------------------------- |
-| `shard-number`  | The current shard number (1-indexed)                                                                     |
 | `total-shards`  | Total number of shards created                                                                           |
 | `test-files`    | Comma-separated list of test files to run in this shard                                                  |
 | `test-commands` | SBT commands to run tests for this shard (e.g., `testOnly com.example.Test1 testOnly com.example.Test2`) |

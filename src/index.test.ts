@@ -237,11 +237,6 @@ describe('shardByTestFileCount', () => {
 describe('run', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.GITHUB_SHARD = undefined;
-  });
-
-  afterEach(() => {
-    delete process.env.GITHUB_SHARD;
   });
 
   it('should run successfully with valid inputs', async () => {
@@ -253,7 +248,6 @@ describe('run', () => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -265,7 +259,6 @@ describe('run', () => {
     await run();
 
     expect(mockCore.getInput).toHaveBeenCalledWith('max-shards');
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '1');
     expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '2');
     expect(mockCore.setOutput).toHaveBeenCalledWith(
       'test-files',
@@ -279,7 +272,7 @@ describe('run', () => {
     expect(mockCore.exportVariable).toHaveBeenCalled();
   });
 
-  it('should use shard-number input when provided', async () => {
+  it('should always use shard 1', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
       return false;
@@ -288,7 +281,6 @@ describe('run', () => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '2';
       return '';
     });
 
@@ -299,60 +291,10 @@ describe('run', () => {
 
     await run();
 
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '2');
     expect(mockCore.setOutput).toHaveBeenCalledWith(
       'test-files',
-      'src/test/scala/com/example/Test2.scala'
+      'src/test/scala/com/example/Test1.scala'
     );
-  });
-
-  it('should use GITHUB_SHARD environment variable when shard-number input is not provided', async () => {
-    process.env.GITHUB_SHARD = '2';
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'round-robin';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '';
-      return '';
-    });
-
-    mockGlob.mockResolvedValue([
-      'src/test/scala/com/example/Test1.scala',
-      'src/test/scala/com/example/Test2.scala',
-    ]);
-
-    await run();
-
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '2');
-  });
-
-  it('should default to shard 1 when neither input nor env var is provided', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'round-robin';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '';
-      return '';
-    });
-
-    delete process.env.GITHUB_SHARD;
-
-    mockGlob.mockResolvedValue([
-      'src/test/scala/com/example/Test1.scala',
-      'src/test/scala/com/example/Test2.scala',
-    ]);
-
-    await run();
-
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '1');
   });
 
   it('should handle no test files found', async () => {
@@ -364,7 +306,6 @@ describe('run', () => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '';
       return '';
     });
 
@@ -375,7 +316,6 @@ describe('run', () => {
     expect(mockCore.warning).toHaveBeenCalledWith(
       'No test files found. This may indicate a misconfigured test-pattern.'
     );
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '1');
     expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '1');
     expect(mockCore.setOutput).toHaveBeenCalledWith('test-files', '');
     expect(mockCore.setOutput).toHaveBeenCalledWith('test-commands', '');
@@ -420,7 +360,6 @@ describe('run', () => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'complexity';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -492,6 +431,7 @@ describe('run', () => {
   });
 
   it('should handle shard index out of bounds gracefully', async () => {
+    process.env.GITHUB_SHARD = '10';
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
       return false;
@@ -500,7 +440,6 @@ describe('run', () => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '10';
       return '';
     });
 
@@ -508,7 +447,6 @@ describe('run', () => {
 
     await run();
 
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '10');
     expect(mockCore.setOutput).toHaveBeenCalledWith(
       'test-files',
       'src/test/scala/com/example/Test1.scala'
@@ -516,6 +454,7 @@ describe('run', () => {
   });
 
   it('should log test files and commands when shard has files', async () => {
+    process.env.GITHUB_SHARD = '1';
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
       return false;
@@ -524,7 +463,6 @@ describe('run', () => {
       if (key === 'max-shards') return '1';
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -534,7 +472,7 @@ describe('run', () => {
 
     expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Shard distribution:'));
     expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Shard 1:'));
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Command:'));
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('testOnly'));
   });
 
   it('should warn when shard has no files', async () => {
@@ -546,7 +484,6 @@ describe('run', () => {
       if (key === 'max-shards') return '3';
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '3';
       return '';
     });
 
@@ -557,11 +494,10 @@ describe('run', () => {
 
     await run();
 
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '3');
     expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '2');
     expect(mockCore.setOutput).toHaveBeenCalledWith(
       'test-files',
-      'src/test/scala/com/example/Test2.scala'
+      'src/test/scala/com/example/Test1.scala'
     );
     expect(mockCore.warning).not.toHaveBeenCalled();
   });
@@ -606,7 +542,6 @@ describe('run', () => {
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'test-env-vars') return 'JAVA_OPTS,SCALA_VERSION';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -633,7 +568,6 @@ describe('run', () => {
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'test-env-vars') return 'MISSING_VAR,JAVA_OPTS';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -663,7 +597,6 @@ describe('run', () => {
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -696,7 +629,6 @@ describe('run', () => {
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -719,7 +651,6 @@ describe('run', () => {
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 

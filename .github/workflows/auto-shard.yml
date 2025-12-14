@@ -28,7 +28,6 @@ jobs:
         uses: ./
         with:
           auto-shard: true
-          shard-number: 1
 
   run-tests:
     runs-on: ubuntu-latest
@@ -54,10 +53,9 @@ jobs:
         uses: ./
         with:
           auto-shard: true
-          shard-number: ${{ matrix.shard }}
       - name: Verify sharding
         run: |
-          echo "=== Shard ${{ steps.shard.outputs.shard-number }}/${{ steps.shard.outputs.total-shards }} ==="
+          echo "=== Shard ${{ matrix.shard }}/${{ steps.shard.outputs.total-shards }} ==="
           echo "Test files: ${{ steps.shard.outputs.test-files }}"
           echo "Test commands: ${{ steps.shard.outputs.test-commands }}"
           if [ -z "${{ steps.shard.outputs.test-files }}" ]; then

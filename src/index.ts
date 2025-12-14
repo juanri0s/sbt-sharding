@@ -210,9 +210,7 @@ export async function run(): Promise<void> {
     const algorithm = core.getInput('algorithm') || 'round-robin';
     const testPattern = core.getInput('test-pattern') || '**/*Test.scala,**/*Spec.scala';
     const testEnvVars = core.getInput('test-env-vars') || '';
-    const shardInput = core.getInput('shard-number');
-    const shardEnv = process.env.GITHUB_SHARD;
-    const currentShard = parseInt(shardInput || shardEnv || '1', 10);
+    const currentShard = 1;
 
     core.info(`Discovering test files with pattern: ${testPattern}`);
     const testFiles = await discoverTestFiles(testPattern);
@@ -235,7 +233,6 @@ export async function run(): Promise<void> {
 
     if (testFiles.length === 0) {
       core.warning('No test files found. This may indicate a misconfigured test-pattern.');
-      core.setOutput('shard-number', '1');
       core.setOutput('total-shards', '1');
       core.setOutput('test-files', '');
       core.setOutput('test-commands', '');
@@ -257,7 +254,7 @@ export async function run(): Promise<void> {
 
     const totalShards = shards.length;
     const shardIndex = Math.min(currentShard - 1, totalShards - 1);
-    const currentShardFiles = shards[shardIndex] || [];
+    const currentShardFiles = shards[shardIndex];
 
     core.info(`Total shards: ${totalShards}`);
     core.info(`\nShard distribution:`);
@@ -270,8 +267,6 @@ export async function run(): Promise<void> {
 
     core.info(`\nCurrent shard: ${currentShard} (0-indexed: ${shardIndex})`);
     core.info(`Test files in this shard: ${currentShardFiles.length}`);
-
-    core.setOutput('shard-number', currentShard.toString());
     core.setOutput('total-shards', totalShards.toString());
     core.setOutput('test-files', currentShardFiles.join(','));
     core.setOutput(
@@ -304,11 +299,7 @@ export async function run(): Promise<void> {
     core.exportVariable('SBT_TEST_FILES', currentShardFiles.join(','));
     core.exportVariable('SBT_TEST_COMMANDS', testCommands.join(' '));
 
-    if (currentShardFiles.length > 0) {
-      core.info(`\nCommand: sbt ${finalCommands}`);
-    } else {
-      core.warning(`No test files assigned to shard ${currentShard}`);
-    }
+    core.info(`\nCommand: sbt ${finalCommands}`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     core.setFailed(errorMessage);

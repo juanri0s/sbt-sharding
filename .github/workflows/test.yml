@@ -13,8 +13,6 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
-    env:
-      GITHUB_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
       - name: Setup Node.js
@@ -46,7 +44,7 @@ jobs:
           test-env-vars: 'TEST_ENV_VAR,ANOTHER_VAR'
       - name: Display shard info (round-robin)
         run: |
-          echo "Shard: ${{ steps.shard-count.outputs.shard-number }}/${{ steps.shard-count.outputs.total-shards }}"
+          echo "Shard: ${{ env.GITHUB_SHARD }}/${{ steps.shard-count.outputs.total-shards }}"
           echo "Test files: ${{ steps.shard-count.outputs.test-files }}"
           echo "Commands: ${{ steps.shard-count.outputs.test-commands }}"
           if [ -z "${{ steps.shard-count.outputs.test-files }}" ]; then
@@ -66,7 +64,7 @@ jobs:
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
       - name: Display shard info (complexity)
         run: |
-          echo "Shard: ${{ steps.shard-complexity.outputs.shard-number }}/${{ steps.shard-complexity.outputs.total-shards }}"
+          echo "Shard: ${{ matrix.shard }}/${{ steps.shard-complexity.outputs.total-shards }}"
           echo "Test files: ${{ steps.shard-complexity.outputs.test-files }}"
           echo "Commands: ${{ steps.shard-complexity.outputs.test-commands }}"
           if [ -z "${{ steps.shard-complexity.outputs.test-files }}" ]; then

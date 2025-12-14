@@ -172,9 +172,23 @@ export function shardByComplexity(testFiles: string[], maxShards: number): strin
   return shards;
 }
 
+export function calculateOptimalShards(testFileCount: number): number {
+  if (testFileCount === 0) {
+    return 1;
+  }
+  if (testFileCount <= 5) {
+    return 1;
+  }
+  if (testFileCount <= 20) {
+    return Math.ceil(testFileCount / 5);
+  }
+  return Math.min(Math.ceil(testFileCount / 10), 10);
+}
+
 export async function run(): Promise<void> {
   try {
-    const maxShards = parseInt(core.getInput('max-shards'), 10);
+    const autoShard = core.getBooleanInput('auto-shard');
+    const maxShardsInput = core.getInput('max-shards');
     const algorithm = core.getInput('algorithm') || 'test-file-count';
     const testPattern = core.getInput('test-pattern') || '**/*Test.scala,**/*Spec.scala';
     const testEnvVars = core.getInput('test-env-vars') || '';
@@ -183,13 +197,22 @@ export async function run(): Promise<void> {
     const shardEnv = process.env.GITHUB_SHARD;
     const currentShard = parseInt(shardInput || shardEnv || '1', 10);
 
-    if (isNaN(maxShards) || maxShards < 1) {
-      throw new Error('max-shards must be a positive integer');
-    }
-
     core.info(`Discovering test files with pattern: ${testPattern}`);
     const testFiles = await discoverTestFiles(testPattern);
     core.info(`Found ${testFiles.length} test files`);
+
+    let maxShards: number;
+    if (autoShard) {
+      maxShards = calculateOptimalShards(testFiles.length);
+      core.info(
+        `Auto-shard mode: calculated ${maxShards} shards for ${testFiles.length} test files`
+      );
+    } else {
+      maxShards = parseInt(maxShardsInput, 10);
+      if (isNaN(maxShards) || maxShards < 1) {
+        throw new Error('max-shards must be a positive integer');
+      }
+    }
 
     if (testFiles.length === 0) {
       core.warning('No test files found. This may indicate a misconfigured test-pattern.');
@@ -197,6 +220,7 @@ export async function run(): Promise<void> {
       core.setOutput('total-shards', '1');
       core.setOutput('test-files', '');
       core.setOutput('test-commands', '');
+      core.setOutput('shard-matrix', JSON.stringify([1]));
       return;
     }
 
@@ -223,6 +247,10 @@ export async function run(): Promise<void> {
     core.setOutput('shard-number', currentShard.toString());
     core.setOutput('total-shards', totalShards.toString());
     core.setOutput('test-files', currentShardFiles.join(','));
+    core.setOutput(
+      'shard-matrix',
+      JSON.stringify(Array.from({ length: totalShards }, (_, i) => i + 1))
+    );
 
     const testCommands = currentShardFiles.map(testFileToSbtCommand);
 

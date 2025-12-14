@@ -86,3 +86,64 @@ jobs:
             echo "ERROR: No test files found!"
             exit 1
           fi
+
+  test-dynamic-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.determine.outputs.shard-matrix }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - name: Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f
+        with:
+          node-version: '24'
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install
+      - name: Build action
+        run: pnpm run build
+      - name: Determine shards
+        id: determine
+        uses: ./
+        with:
+          auto-shard: true
+          algorithm: test-file-count
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala'
+          shard-number: 1
+
+  test-dynamic-matrix-execution:
+    needs: test-dynamic-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJson(needs.test-dynamic-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - name: Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f
+        with:
+          node-version: '24'
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install
+      - name: Build action
+        run: pnpm run build
+      - name: Shard Tests
+        id: shard
+        uses: ./
+        with:
+          auto-shard: true
+          algorithm: test-file-count
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala'
+          shard-number: ${{ matrix.shard }}
+      - name: Validate shard
+        run: |
+          echo "Shard: ${{ steps.shard.outputs.shard-number }}/${{ steps.shard.outputs.total-shards }}"
+          echo "Test files: ${{ steps.shard.outputs.test-files }}"
+          if [ -z "${{ steps.shard.outputs.test-files }}" ]; then
+            echo "ERROR: No test files found for shard ${{ matrix.shard }}!"
+            exit 1
+          fi

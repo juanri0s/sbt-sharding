@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@actions/core', () => ({
   getInput: vi.fn(),
+  getBooleanInput: vi.fn(),
   setOutput: vi.fn(),
   setFailed: vi.fn(),
   info: vi.fn(),
@@ -25,6 +26,7 @@ import {
   shardByTestFileCount,
   shardByComplexity,
   analyzeTestComplexity,
+  calculateOptimalShards,
   run,
 } from './index.js';
 import { writeFileSync, mkdirSync } from 'fs';
@@ -33,6 +35,7 @@ import { join } from 'path';
 const mockGlob = glob as ReturnType<typeof vi.fn>;
 const mockCore = core as {
   getInput: ReturnType<typeof vi.fn>;
+  getBooleanInput: ReturnType<typeof vi.fn>;
   setOutput: ReturnType<typeof vi.fn>;
   setFailed: ReturnType<typeof vi.fn>;
   info: ReturnType<typeof vi.fn>;
@@ -230,6 +233,7 @@ describe('run', () => {
   });
 
   it('should run successfully with valid inputs', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'test-file-count';
@@ -256,10 +260,12 @@ describe('run', () => {
       'test-commands',
       expect.stringContaining('testOnly')
     );
+    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-matrix', JSON.stringify([1, 2]));
     expect(mockCore.exportVariable).toHaveBeenCalled();
   });
 
   it('should use shard-number input when provided', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'test-file-count';
@@ -284,7 +290,7 @@ describe('run', () => {
 
   it('should use GITHUB_SHARD environment variable when shard-number input is not provided', async () => {
     process.env.GITHUB_SHARD = '2';
-
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'test-file-count';
@@ -304,6 +310,7 @@ describe('run', () => {
   });
 
   it('should default to shard 1 when neither input nor env var is provided', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'test-file-count';
@@ -325,6 +332,7 @@ describe('run', () => {
   });
 
   it('should handle no test files found', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'test-file-count';
@@ -344,9 +352,11 @@ describe('run', () => {
     expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '1');
     expect(mockCore.setOutput).toHaveBeenCalledWith('test-files', '');
     expect(mockCore.setOutput).toHaveBeenCalledWith('test-commands', '');
+    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-matrix', JSON.stringify([1]));
   });
 
   it('should throw error for invalid max-shards', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '0';
       return '';
@@ -358,6 +368,7 @@ describe('run', () => {
   });
 
   it('should throw error for NaN max-shards', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return 'invalid';
       return '';
@@ -369,6 +380,7 @@ describe('run', () => {
   });
 
   it('should use complexity algorithm', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'complexity';
@@ -386,6 +398,7 @@ describe('run', () => {
   });
 
   it('should throw error for unknown algorithm', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'unknown-algorithm';
@@ -401,6 +414,7 @@ describe('run', () => {
   });
 
   it('should use default algorithm when not provided', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return '';
@@ -417,6 +431,7 @@ describe('run', () => {
   });
 
   it('should use default test-pattern when not provided', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'test-file-count';
@@ -433,6 +448,7 @@ describe('run', () => {
   });
 
   it('should handle shard index out of bounds gracefully', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'test-file-count';
@@ -453,6 +469,7 @@ describe('run', () => {
   });
 
   it('should log test files and commands when shard has files', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '1';
       if (key === 'algorithm') return 'test-file-count';
@@ -470,6 +487,7 @@ describe('run', () => {
   });
 
   it('should warn when shard has no files', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '3';
       if (key === 'algorithm') return 'test-file-count';
@@ -495,6 +513,7 @@ describe('run', () => {
   });
 
   it('should handle error and call setFailed', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation(() => {
       throw new Error('Input error');
     });
@@ -505,6 +524,7 @@ describe('run', () => {
   });
 
   it('should handle non-Error exceptions', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation(() => {
       throw 'String error';
     });
@@ -517,7 +537,7 @@ describe('run', () => {
   it('should include environment variables in test command', async () => {
     process.env.JAVA_OPTS = '-Xmx2g';
     process.env.SCALA_VERSION = '2.13';
-
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '1';
       if (key === 'algorithm') return 'test-file-count';
@@ -541,6 +561,7 @@ describe('run', () => {
   });
 
   it('should skip missing environment variables', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '1';
       if (key === 'algorithm') return 'test-file-count';
@@ -566,6 +587,109 @@ describe('run', () => {
     );
 
     delete process.env.JAVA_OPTS;
+  });
+
+  it('should use auto-shard mode to calculate shards', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      return '';
+    });
+
+    mockGlob.mockResolvedValue([
+      'src/test/scala/com/example/Test1.scala',
+      'src/test/scala/com/example/Test2.scala',
+      'src/test/scala/com/example/Test3.scala',
+      'src/test/scala/com/example/Test4.scala',
+      'src/test/scala/com/example/Test5.scala',
+      'src/test/scala/com/example/Test6.scala',
+    ]);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Auto-shard mode: calculated')
+    );
+    expect(mockCore.setOutput).toHaveBeenCalled();
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'shard-matrix',
+      expect.stringMatching(/^\[.*\]$/)
+    );
+  });
+
+  it('should calculate 1 shard for 5 or fewer files', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      return '';
+    });
+
+    mockGlob.mockResolvedValue([
+      'src/test/scala/com/example/Test1.scala',
+      'src/test/scala/com/example/Test2.scala',
+      'src/test/scala/com/example/Test3.scala',
+    ]);
+
+    await run();
+
+    expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '1');
+  });
+
+  it('should calculate multiple shards for many files', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      return '';
+    });
+
+    const manyFiles = Array.from(
+      { length: 25 },
+      (_, i) => `src/test/scala/com/example/Test${i + 1}.scala`
+    );
+    mockGlob.mockResolvedValue(manyFiles);
+
+    await run();
+
+    expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', expect.any(String));
+    const totalShards = (mockCore.setOutput as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[0] === 'total-shards'
+    )?.[1];
+    expect(parseInt(totalShards as string, 10)).toBeGreaterThan(1);
+  });
+});
+
+describe('calculateOptimalShards', () => {
+  it('should return 1 for 0 files', () => {
+    expect(calculateOptimalShards(0)).toBe(1);
+  });
+
+  it('should return 1 for 5 or fewer files', () => {
+    expect(calculateOptimalShards(1)).toBe(1);
+    expect(calculateOptimalShards(5)).toBe(1);
+  });
+
+  it('should calculate shards for 6-20 files', () => {
+    expect(calculateOptimalShards(6)).toBe(2);
+    expect(calculateOptimalShards(10)).toBe(2);
+    expect(calculateOptimalShards(15)).toBe(3);
+    expect(calculateOptimalShards(20)).toBe(4);
+  });
+
+  it('should cap at 10 shards for many files', () => {
+    expect(calculateOptimalShards(100)).toBe(10);
+    expect(calculateOptimalShards(200)).toBe(10);
+  });
+
+  it('should calculate appropriate shards for 21-100 files', () => {
+    expect(calculateOptimalShards(21)).toBe(3);
+    expect(calculateOptimalShards(50)).toBe(5);
+    expect(calculateOptimalShards(99)).toBe(10);
   });
 });
 

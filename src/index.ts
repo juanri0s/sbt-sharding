@@ -207,7 +207,7 @@ export async function run(): Promise<void> {
   try {
     const autoShard = core.getBooleanInput('auto-shard');
     const maxShardsInput = core.getInput('max-shards');
-    const algorithm = core.getInput('algorithm') || 'test-file-count';
+    const algorithm = core.getInput('algorithm') || 'round-robin';
     const testPattern = core.getInput('test-pattern') || '**/*Test.scala,**/*Spec.scala';
     const testEnvVars = core.getInput('test-env-vars') || '';
     const shardInput = core.getInput('shard-number');
@@ -245,7 +245,7 @@ export async function run(): Promise<void> {
 
     let shards: string[][];
     switch (algorithm) {
-      case 'test-file-count':
+      case 'round-robin':
         shards = shardByTestFileCount(testFiles, maxShards);
         break;
       case 'complexity':

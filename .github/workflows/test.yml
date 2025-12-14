@@ -33,7 +33,7 @@ jobs:
         run: pnpm test:coverage
       - name: Build action
         run: pnpm run build
-      - name: Test sharding with test-file-count
+      - name: Test sharding with round-robin
         id: shard-count
         env:
           TEST_ENV_VAR: test-value-123
@@ -41,10 +41,10 @@ jobs:
         uses: ./
         with:
           max-shards: 3
-          algorithm: test-file-count
+          algorithm: round-robin
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           test-env-vars: 'TEST_ENV_VAR,ANOTHER_VAR'
-      - name: Display shard info (test-file-count)
+      - name: Display shard info (round-robin)
         run: |
           echo "Shard: ${{ steps.shard-count.outputs.shard-number }}/${{ steps.shard-count.outputs.total-shards }}"
           echo "Test files: ${{ steps.shard-count.outputs.test-files }}"

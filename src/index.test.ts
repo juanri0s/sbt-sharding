@@ -251,7 +251,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '1';
       return '';
@@ -286,7 +286,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '2';
       return '';
@@ -314,7 +314,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '';
       return '';
@@ -337,7 +337,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '';
       return '';
@@ -362,7 +362,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '';
       return '';
@@ -478,7 +478,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '';
       return '';
     });
@@ -498,7 +498,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '10';
       return '';
@@ -522,7 +522,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '1';
       return '';
@@ -544,7 +544,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '3';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '3';
       return '';
@@ -603,7 +603,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'test-env-vars') return 'JAVA_OPTS,SCALA_VERSION';
       if (key === 'shard-number') return '1';
@@ -630,7 +630,7 @@ describe('run', () => {
     });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'test-env-vars') return 'MISSING_VAR,JAVA_OPTS';
       if (key === 'shard-number') return '1';
@@ -661,7 +661,7 @@ describe('run', () => {
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '1';
       return '';
@@ -694,7 +694,7 @@ describe('run', () => {
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '1';
       return '';
@@ -717,7 +717,7 @@ describe('run', () => {
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'shard-number') return '1';
       return '';

@@ -10,9 +10,9 @@ inputs:
     required: false
     default: 'false'
   algorithm:
-    description: 'Sharding algorithm to use (supports: "test-file-count", "complexity")'
+    description: 'Sharding algorithm to use (supports: "round-robin", "complexity")'
     required: false
-    default: 'test-file-count'
+    default: 'round-robin'
   test-pattern:
     description: 'Pattern to match test files (default: **/*Test.scala,**/*Spec.scala)'
     required: false

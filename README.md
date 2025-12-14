@@ -28,7 +28,7 @@ jobs:
         uses: ./
         with:
           max-shards: 4
-          algorithm: test-file-count
+          algorithm: round-robin
           shard-number: ${{ matrix.shard }}
 
       - name: Run Tests
@@ -56,7 +56,7 @@ jobs:
         uses: ./
         with:
           auto-shard: true
-          algorithm: test-file-count
+          algorithm: round-robin
           shard-number: 1
 
   test:
@@ -74,7 +74,7 @@ jobs:
         uses: ./
         with:
           auto-shard: true
-          algorithm: test-file-count
+          algorithm: round-robin
           shard-number: ${{ matrix.shard }}
       - name: Run Tests
         run: sbt ${{ steps.shard.outputs.test-commands }}
@@ -128,7 +128,7 @@ jobs:
         uses: ./
         with:
           max-shards: 5
-          algorithm: test-file-count
+          algorithm: round-robin
           test-pattern: '**/*Test.scala,**/*Spec.scala,**/*Suite.scala'
 
       - name: Run Tests
@@ -142,16 +142,14 @@ jobs:
 
 ## Inputs
 
-| Input                  | Description                                                                                                                                                                    | Required | Default                         |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- | ------------------------------- |
-| `max-shards`           | Maximum number of shards to split tests into (ignored if `auto-shard` is true)                                                                                                 | No       | -                               |
-| `auto-shard`           | Automatically determine the number of shards based on test file count                                                                                                          | No       | `false`                         |
-| `algorithm`            | Sharding algorithm to use                                                                                                                                                      | No       | `test-file-count`               |
-| `test-pattern`         | Comma-separated glob patterns for test files                                                                                                                                   | No       | `**/*Test.scala,**/*Spec.scala` |
-| `shard-number`         | Current shard number (1-indexed). If not provided, uses `GITHUB_SHARD` env var or defaults to 1                                                                                | No       | `1` or `GITHUB_SHARD` env var   |
-| `test-env-vars`        | Comma-separated list of environment variable names to include in test command output                                                                                           | No       | -                               |
-| `use-historical-data`  | Use historical execution time data to optimize shard distribution                                                                                                              | No       | `false`                         |
-| `historical-data-path` | Path to JSON file containing historical test execution times (e.g., `.github/test-times.json`). Execution times are automatically collected from the test step via GitHub API. | No       | -                               |
+| Input           | Description                                                                                     | Required | Default                         |
+| --------------- | ----------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
+| `max-shards`    | Maximum number of shards to split tests into (ignored if `auto-shard` is true)                  | No       | -                               |
+| `auto-shard`    | Automatically determine the number of shards based on test file count                           | No       | `false`                         |
+| `algorithm`     | Sharding algorithm to use                                                                       | No       | `round-robin`                   |
+| `test-pattern`  | Comma-separated glob patterns for test files                                                    | No       | `**/*Test.scala,**/*Spec.scala` |
+| `shard-number`  | Current shard number (1-indexed). If not provided, uses `GITHUB_SHARD` env var or defaults to 1 | No       | `1` or `GITHUB_SHARD` env var   |
+| `test-env-vars` | Comma-separated list of environment variable names to include in test command output            | No       | -                               |
 
 ## Outputs
 
@@ -172,9 +170,9 @@ The action also sets these environment variables for convenience:
 
 ## Sharding Algorithms
 
-### `test-file-count` (Default)
+### `round-robin` (Default)
 
-Distributes test files evenly across shards using round-robin.
+Distributes test files evenly across shards using round-robin distribution.
 
 ### `complexity`
 
@@ -188,72 +186,20 @@ Distributes tests based on estimated complexity to balance execution time across
 - Files with many tests (>20): +2 points, (>10): +1 point
 - Large files (>5000 chars): +1 point
 
-Tests are sorted by complexity (highest first) and distributed using a bin-packing algorithm to balance total complexity across shards.
-
-**How it works:**
-
-1. **Download artifact** (you): Try to download historical data artifact from previous runs. If nothing exists, that's fine - first run.
-2. **Shard tests** (action): The action reads historical data if it exists and optimizes where tests get placed across shards. If no data exists, falls back to complexity/round-robin algorithm.
-3. **Run tests** (you): Execute tests and track execution time using `date` command or `time` utility.
-4. **Save data** (you): Read `steps.shard.outputs.test-files`, divide execution time across files, update the JSON file, and write it. The example above shows how to do this with shell scripts and `jq`.
-5. **Upload artifact** (you): Upload shard-specific historical data as artifacts.
-6. **Merge artifacts** (you): After all shards complete, download all shard artifacts and merge their JSON contents, then upload the merged artifact for the next run.
-
-**Next run:** Repeats the cycle, but step 1 will have data, so step 2 (sharding) will optimize test placement based on historical execution times.
-
-**Important:** The action's primary role is step 2 - reading historical data and optimizing shard distribution. All tracking, saving, merging, and artifact management is handled by your workflow.
-
-**Alternative: Commit to Repository**
-
-You can also commit the historical data file to your repository instead of using artifacts:
-
-```yaml
-- name: Run Tests
-  id: test-run
-  run: |
-    START_TIME=$(date +%s)
-    sbt ${{ steps.shard.outputs.test-commands }}
-    END_TIME=$(date +%s)
-    EXECUTION_TIME=$((END_TIME - START_TIME))
-    echo "execution_time=$EXECUTION_TIME" >> $GITHUB_OUTPUT
-
-- name: Update historical data
-  uses: ./
-  with:
-    use-historical-data: true
-    historical-data-path: '.github/test-times.json'
-    execution-time: ${{ steps.test-run.outputs.execution_time }}
-    algorithm: complexity
-    test-pattern: '**/*Test.scala,**/*Spec.scala'
-    shard-number: ${{ matrix.shard }}
-
-- name: Commit updated historical data
-  run: |
-    git config user.name "github-actions[bot]"
-    git config user.email "github-actions[bot]@users.noreply.github.com"
-    git add .github/test-times.json
-    git commit -m "Update test execution times" || exit 0
-    git push
-```
+Tests are sorted by complexity (highest first) and distributed using a greedy bin-packing algorithm to balance total complexity across shards.
 
 ## Auto-Shard Mode
 
-When `auto-shard: true` is set, the action automatically determines the optimal number of shards based on:
+When `auto-shard: true` is set, the action automatically determines the optimal number of shards based on test file count:
 
-1. **Test file count** (base calculation):
-   - **0 files**: 1 shard
-   - **1-5 files**: 1 shard
-   - **6-20 files**: `ceil(files / 5)` shards
-   - **21+ files**: `ceil(files / 10)` shards
-
-2. **Historical execution times** (if available):
-   - If estimated total execution time > 600s: adds shards to target ~300s per shard
-   - If estimated total execution time > 300s: adds shards to target ~200s per shard
-   - This ensures slow test suites get more shards for better parallelization
+- **0 files**: 1 shard
+- **1-5 files**: 1 shard
+- **6-20 files**: `ceil(files / 5)` shards
+- **21+ files**: `ceil(files / 10)` shards
 
 The final shard count is capped at 10 shards maximum.
 
-**Example:** If you have 15 test files (base: 3 shards) but historical data shows an estimated total time of 800s, auto-shard will increase to ~3 shards (800s / 300s ≈ 3) to balance execution time.
+**Example:** If you have 15 test files, auto-shard will calculate 3 shards (15 / 5 = 3).
 
 This eliminates the need to manually specify `max-shards` and adjust it as your test suite grows or slows down. The action will calculate the appropriate number of shards and output it in the `total-shards` output.
 

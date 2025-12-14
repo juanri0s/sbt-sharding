@@ -202,9 +202,10 @@ Execution times are automatically collected from the test step via GitHub API. N
 jobs:
   test:
     runs-on: ubuntu-latest
-    permissions:
-      actions: read # Required to access workflow jobs API for execution time detection
-      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
 
@@ -222,26 +223,56 @@ jobs:
         uses: ./
         with:
           max-shards: 4
-          algorithm: test-file-count
+          algorithm: complexity
           use-historical-data: true
           historical-data-path: '.github/test-times.json'
+          shard-number: ${{ matrix.shard }}
 
-      # Run tests
+      # Run tests and track execution time
       - name: Run Tests
         id: test-run
-        run: sbt ${{ steps.shard.outputs.test-commands }}
+        run: |
+          START_TIME=$(date +%s)
+          sbt ${{ steps.shard.outputs.test-commands }}
+          END_TIME=$(date +%s)
+          EXECUTION_TIME=$((END_TIME - START_TIME))
+          echo "execution_time=$EXECUTION_TIME" >> $GITHUB_OUTPUT
 
-      # Save historical data automatically (execution time automatically detected from test step)
+      # Save historical data with tracked execution time
       - name: Save historical data
         uses: ./
         with:
           use-historical-data: true
           historical-data-path: '.github/test-times.json'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          execution-time: ${{ steps.test-run.outputs.execution_time }}
+          algorithm: complexity
+          test-pattern: '**/*Test.scala,**/*Spec.scala'
+          shard-number: ${{ matrix.shard }}
 
-      # Upload updated historical data as artifact
-      - name: Upload historical data
+      # Upload shard-specific historical data
+      - name: Upload shard historical data
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-times-shard-${{ matrix.shard }}
+          path: .github/test-times.json
+          retention-days: 90
+
+  merge-historical-data:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      # Download all shard artifacts and merge them
+      - name: Download and merge shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-times-shard-*
+          merge-multiple: true
+          path: .github
+
+      # Upload merged historical data
+      - name: Upload merged historical data
         uses: actions/upload-artifact@v4
         with:
           name: test-times
@@ -252,10 +283,11 @@ jobs:
 **How it works:**
 
 - **First run**: No artifact exists, uses complexity/round-robin algorithm
-- **Automatic timing**: Execution time is automatically detected from the test step (looks for steps with "test", "run", or "sbt" in the name, or uses the most recent completed step)
-- **Data is saved**: Automatically saved to `historical-data-path` (averaged with existing data)
-- **Artifact uploaded**: Historical data is uploaded as an artifact for next run
-- **Next run**: Downloads artifact, loads historical data, and uses it to optimize shard distribution
+- **Track execution time**: Use `date` command or `time` utility to track how long tests take
+- **Save per shard**: Each shard saves its execution time to the historical data file
+- **Merge shards**: After all shards complete, merge all shard-specific files into one artifact
+- **Data is saved**: Execution times are averaged with existing data for the same test files
+- **Next run**: Downloads merged artifact, loads historical data, and uses it to optimize shard distribution
 - **Continuous improvement**: Each run updates the data automatically, improving accuracy over time
 - **Balanced shards**: Over time, shards become balanced as slower tests are identified and distributed evenly
 
@@ -273,16 +305,27 @@ Times are in seconds. The algorithm balances total execution time across shards.
 
 **Alternative: Commit to Repository**
 
-You can also commit the historical data file to your repository:
+You can also commit the historical data file to your repository instead of using artifacts:
 
 ```yaml
+- name: Run Tests
+  id: test-run
+  run: |
+    START_TIME=$(date +%s)
+    sbt ${{ steps.shard.outputs.test-commands }}
+    END_TIME=$(date +%s)
+    EXECUTION_TIME=$((END_TIME - START_TIME))
+    echo "execution_time=$EXECUTION_TIME" >> $GITHUB_OUTPUT
+
 - name: Update historical data
   uses: ./
   with:
     use-historical-data: true
     historical-data-path: '.github/test-times.json'
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    execution-time: ${{ steps.test-run.outputs.execution_time }}
+    algorithm: complexity
+    test-pattern: '**/*Test.scala,**/*Spec.scala'
+    shard-number: ${{ matrix.shard }}
 
 - name: Commit updated historical data
   run: |
@@ -295,16 +338,26 @@ You can also commit the historical data file to your repository:
 
 ## Auto-Shard Mode
 
-When `auto-shard: true` is set, the action automatically determines the optimal number of shards based on the test file count:
+When `auto-shard: true` is set, the action automatically determines the optimal number of shards based on:
 
-- **0 files**: 1 shard
-- **1-5 files**: 1 shard
-- **6-20 files**: `ceil(files / 5)` shards
-- **21+ files**: `min(ceil(files / 10), 10)` shards (capped at 10)
+1. **Test file count** (base calculation):
+   - **0 files**: 1 shard
+   - **1-5 files**: 1 shard
+   - **6-20 files**: `ceil(files / 5)` shards
+   - **21+ files**: `ceil(files / 10)` shards
 
-This eliminates the need to manually specify `max-shards` and adjust it as your test suite grows. The action will calculate the appropriate number of shards and output it in the `total-shards` output.
+2. **Historical execution times** (if available):
+   - If estimated total execution time > 600s: adds shards to target ~300s per shard
+   - If estimated total execution time > 300s: adds shards to target ~200s per shard
+   - This ensures slow test suites get more shards for better parallelization
 
-**Note:** GitHub Actions matrices are static and cannot be dynamically generated. You still need to specify a matrix range (e.g., `[1,2,3,4,5,6,7,8,9,10]`), but the action will automatically determine how many shards are actually needed. Use `if: steps.shard.outputs.test-files != ''` to skip empty shards.
+The final shard count is capped at 10 shards maximum.
+
+**Example:** If you have 15 test files (base: 3 shards) but historical data shows an estimated total time of 800s, auto-shard will increase to ~3 shards (800s / 300s ≈ 3) to balance execution time.
+
+This eliminates the need to manually specify `max-shards` and adjust it as your test suite grows or slows down. The action will calculate the appropriate number of shards and output it in the `total-shards` output.
+
+**Note:** GitHub Actions matrices are static and cannot be dynamically generated. You need a separate job to determine the matrix using `outputs.shard-matrix`, then use that in your test job's matrix strategy.
 
 ## Requirements
 

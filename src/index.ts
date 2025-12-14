@@ -1,66 +1,7 @@
 import * as core from '@actions/core';
-import * as github from '@actions/github';
 import { glob } from 'glob';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
-
-async function getTestStepExecutionTime(): Promise<number> {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) {
-    throw new Error('GITHUB_TOKEN not available');
-  }
-
-  const octokit = github.getOctokit(token);
-  const context = github.context;
-  const currentJobName = process.env.GITHUB_JOB;
-
-  try {
-    const jobs = await octokit.rest.actions.listJobsForWorkflowRun({
-      owner: context.repo.owner,
-      repo: context.repo.repo,
-      run_id: context.runId,
-    });
-
-    const sortedJobs = (jobs.data.jobs || []).sort((a, b) => {
-      if (currentJobName && a.name === currentJobName) return -1;
-      if (currentJobName && b.name === currentJobName) return 1;
-      if (a.status === 'completed' && b.status !== 'completed') return -1;
-      if (b.status === 'completed' && a.status !== 'completed') return 1;
-      return 0;
-    });
-
-    for (const job of sortedJobs) {
-      if (job.steps) {
-        const completedSteps = job.steps.filter(
-          (step) => step.completed_at && step.started_at && step.status === 'completed'
-        );
-
-        if (completedSteps.length > 0) {
-          const testStep =
-            completedSteps.find(
-              (step) =>
-                step.name &&
-                (step.name.toLowerCase().includes('test') ||
-                  step.name.toLowerCase().includes('run') ||
-                  step.name.toLowerCase().includes('sbt'))
-            ) || completedSteps[completedSteps.length - 1];
-
-          if (testStep && testStep.completed_at && testStep.started_at) {
-            const start = new Date(testStep.started_at).getTime();
-            const end = new Date(testStep.completed_at).getTime();
-            return (end - start) / 1000;
-          }
-        }
-      }
-    }
-
-    return 0;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    core.debug(`Could not automatically collect execution time: ${errorMessage}`);
-    throw new Error(`Failed to get step execution time: ${errorMessage}`);
-  }
-}
 
 export async function discoverTestFiles(testPattern: string): Promise<string[]> {
   const patterns = testPattern.split(',').map((p) => p.trim());
@@ -447,17 +388,36 @@ export function shardByTestFileCount(
   return shards;
 }
 
-export function calculateOptimalShards(testFileCount: number): number {
+export function calculateOptimalShards(
+  testFileCount: number,
+  historicalData: HistoricalData | null = null
+): number {
   if (testFileCount === 0) {
     return 1;
   }
+
+  let baseShards: number;
   if (testFileCount <= 5) {
-    return 1;
+    baseShards = 1;
+  } else if (testFileCount <= 20) {
+    baseShards = Math.ceil(testFileCount / 5);
+  } else {
+    baseShards = Math.ceil(testFileCount / 10);
   }
-  if (testFileCount <= 20) {
-    return Math.ceil(testFileCount / 5);
+
+  if (historicalData && Object.keys(historicalData).length > 0) {
+    const totalExecutionTime = Object.values(historicalData).reduce((sum, time) => sum + time, 0);
+    const avgTimePerFile = totalExecutionTime / Object.keys(historicalData).length;
+    const estimatedTotalTime = avgTimePerFile * testFileCount;
+
+    if (estimatedTotalTime > 600) {
+      baseShards = Math.max(baseShards, Math.ceil(estimatedTotalTime / 300));
+    } else if (estimatedTotalTime > 300) {
+      baseShards = Math.max(baseShards, Math.ceil(estimatedTotalTime / 200));
+    }
   }
-  return Math.min(Math.ceil(testFileCount / 10), 10);
+
+  return Math.min(baseShards, 10);
 }
 
 export async function run(): Promise<void> {
@@ -495,10 +455,19 @@ export async function run(): Promise<void> {
 
     let maxShards: number;
     if (autoShard) {
-      maxShards = calculateOptimalShards(testFiles.length);
-      core.info(
-        `Auto-shard mode: calculated ${maxShards} shard(s) for ${testFiles.length} test files`
-      );
+      maxShards = calculateOptimalShards(testFiles.length, historicalData);
+      if (historicalData && Object.keys(historicalData).length > 0) {
+        const totalTime = Object.values(historicalData).reduce((sum, time) => sum + time, 0);
+        const avgTime = totalTime / Object.keys(historicalData).length;
+        const estimatedTotal = avgTime * testFiles.length;
+        core.info(
+          `Auto-shard mode: calculated ${maxShards} shard(s) for ${testFiles.length} test files (estimated total time: ${estimatedTotal.toFixed(1)}s based on historical data)`
+        );
+      } else {
+        core.info(
+          `Auto-shard mode: calculated ${maxShards} shard(s) for ${testFiles.length} test files`
+        );
+      }
     } else {
       maxShards = parseInt(maxShardsInput, 10);
       if (isNaN(maxShards) || maxShards < 1) {
@@ -619,20 +588,15 @@ export async function run(): Promise<void> {
     core.exportVariable('SBT_TEST_COMMANDS', testCommands.join(' '));
 
     if (useHistoricalData && historicalDataPath) {
-      try {
-        const executionTime = await getTestStepExecutionTime();
-        if (executionTime > 0) {
+      const executionTimeInput = core.getInput('execution-time');
+      if (executionTimeInput) {
+        const executionTime = parseFloat(executionTimeInput);
+        if (!isNaN(executionTime) && executionTime > 0) {
           saveHistoricalData(historicalDataPath, currentShardFiles, executionTime);
           core.info(
-            `Automatically collected execution time: ${executionTime}s for ${currentShardFiles.length} test file(s)`
+            `Saved execution time: ${executionTime}s for ${currentShardFiles.length} test file(s)`
           );
-        } else {
-          core.info(`Historical data will be loaded from: ${historicalDataPath}`);
         }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        core.debug(`Could not automatically collect execution time: ${errorMessage}`);
-        core.info(`Historical data will be loaded from: ${historicalDataPath}`);
       }
     }
 

@@ -189,15 +189,46 @@ jobs:
           path: .github/test-times.json
           retention-days: 1
 
+  test-historical-data-end-to-end-run1-determine-shards:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.determine.outputs.shard-matrix }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - name: Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f
+        with:
+          node-version: '24'
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install
+      - name: Build action
+        run: pnpm run build
+      - name: Download historical data (if exists)
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: test-times-e2e
+          path: .github
+        continue-on-error: true
+      - name: Determine optimal shards using auto-shard
+        id: determine
+        uses: ./
+        with:
+          auto-shard: true
+          use-historical-data: true
+          historical-data-path: '.github/test-times-e2e.json'
+          algorithm: complexity
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
+          shard-number: 1
+
   test-historical-data-end-to-end-run1:
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
+    needs: test-historical-data-end-to-end-run1-determine-shards
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: ${{ fromJson(needs.test-historical-data-end-to-end-run1-determine-shards.outputs.matrix) }}
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
       - name: Setup Node.js
@@ -221,28 +252,31 @@ jobs:
         id: shard-run1
         uses: ./
         with:
+          auto-shard: true
           use-historical-data: true
           historical-data-path: '.github/test-times-e2e.json'
-          max-shards: 2
           algorithm: complexity
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           shard-number: ${{ matrix.shard }}
-      - name: Run tests
+      - name: Run tests and track execution time
         id: test-run1
         run: |
           echo "=== RUN 1: Running tests for shard ${{ steps.shard-run1.outputs.shard-number }}/${{ steps.shard-run1.outputs.total-shards }} ==="
           echo "Test files: ${{ steps.shard-run1.outputs.test-files }}"
           echo "Test commands: ${{ steps.shard-run1.outputs.test-commands }}"
-          # Simulate test execution with different times for different test files
-          # Use a longer sleep to ensure execution time is detected (action looks for steps with "test", "run", or "sbt" in name)
+
+          # Track execution time using 'time' command
+          START_TIME=$(date +%s.%N)
+
+          # Simulate test execution (in real usage, this would be: sbt ${{ steps.shard-run1.outputs.test-commands }})
           sleep 5
-          echo "Tests completed"
+
+          END_TIME=$(date +%s.%N)
+          EXECUTION_TIME=$(echo "$END_TIME - $START_TIME" | bc)
+          echo "execution_time=$EXECUTION_TIME" >> $GITHUB_OUTPUT
+          echo "Tests completed in ${EXECUTION_TIME}s"
       - name: Ensure .github directory exists
         run: mkdir -p .github
-      - name: Wait for step timing to be available in API
-        run: |
-          echo "Waiting a moment for GitHub API to update step timing..."
-          sleep 2
       - name: Save historical data after first run
         id: save-run1
         uses: ./
@@ -250,11 +284,10 @@ jobs:
           auto-shard: true
           use-historical-data: true
           historical-data-path: '.github/test-times-e2e.json'
+          execution-time: ${{ steps.test-run1.outputs.execution_time }}
           algorithm: complexity
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           shard-number: ${{ matrix.shard }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify historical data file was created
         run: |
           echo "=== Verifying historical data file was created ==="
@@ -325,9 +358,6 @@ jobs:
   test-historical-data-end-to-end-run2:
     runs-on: ubuntu-latest
     needs: test-historical-data-end-to-end-run1-merge
-    permissions:
-      actions: read
-      contents: read
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
       - name: Setup Node.js
@@ -386,7 +416,7 @@ jobs:
           echo "  - 'Historical execution times:' (if data exists)"
           echo "  - 'Shard distribution (balanced by execution time)' (if using historical data)"
         continue-on-error: true
-      - name: Run Scala tests again (simulated)
+      - name: Run tests and track execution time
         id: test-run2
         run: |
           echo "=== RUN 2: Running tests for shard ${{ steps.shard-run2.outputs.shard-number }} ==="
@@ -394,8 +424,14 @@ jobs:
           echo "Test commands: ${{ steps.shard-run2.outputs.test-commands }}"
           echo ""
           echo "Note: If historical data was used, slower tests should be distributed differently"
+
+          # Track execution time (in real usage, this would be: sbt ${{ steps.shard-run2.outputs.test-commands }})
+          START_TIME=$(date +%s)
           sleep 5
-          echo "Tests completed"
+          END_TIME=$(date +%s)
+          EXECUTION_TIME=$((END_TIME - START_TIME))
+          echo "execution_time=$EXECUTION_TIME" >> $GITHUB_OUTPUT
+          echo "Tests completed in ${EXECUTION_TIME}s"
       - name: Save updated historical data after second run
         id: save-run2
         uses: ./
@@ -403,11 +439,10 @@ jobs:
           auto-shard: true
           use-historical-data: true
           historical-data-path: '.github/test-times-e2e.json'
+          execution-time: ${{ steps.test-run2.outputs.execution_time }}
           algorithm: complexity
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           shard-number: 1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify historical data was updated with averaged times
         run: |
           echo "=== Final verification: Historical data after second run ==="

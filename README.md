@@ -142,14 +142,16 @@ jobs:
 
 ## Inputs
 
-| Input           | Description                                                                                     | Required | Default                         |
-| --------------- | ----------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
-| `max-shards`    | Maximum number of shards to split tests into (ignored if `auto-shard` is true)                  | No       | -                               |
-| `auto-shard`    | Automatically determine the number of shards based on test file count                           | No       | `false`                         |
-| `algorithm`     | Sharding algorithm to use                                                                       | No       | `test-file-count`               |
-| `test-pattern`  | Comma-separated glob patterns for test files                                                    | No       | `**/*Test.scala,**/*Spec.scala` |
-| `shard-number`  | Current shard number (1-indexed). If not provided, uses `GITHUB_SHARD` env var or defaults to 1 | No       | `1` or `GITHUB_SHARD` env var   |
-| `test-env-vars` | Comma-separated list of environment variable names to include in test command output            | No       | -                               |
+| Input                  | Description                                                                                     | Required | Default                         |
+| ---------------------- | ----------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
+| `max-shards`           | Maximum number of shards to split tests into (ignored if `auto-shard` is true)                  | No       | -                               |
+| `auto-shard`           | Automatically determine the number of shards based on test file count                           | No       | `false`                         |
+| `algorithm`            | Sharding algorithm to use                                                                       | No       | `test-file-count`               |
+| `test-pattern`         | Comma-separated glob patterns for test files                                                    | No       | `**/*Test.scala,**/*Spec.scala` |
+| `shard-number`         | Current shard number (1-indexed). If not provided, uses `GITHUB_SHARD` env var or defaults to 1 | No       | `1` or `GITHUB_SHARD` env var   |
+| `test-env-vars`        | Comma-separated list of environment variable names to include in test command output            | No       | -                               |
+| `use-historical-data`  | Use historical execution time data to optimize shard distribution                               | No       | `false`                         |
+| `historical-data-path` | Path to JSON file containing historical test execution times (e.g., `.github/test-times.json`)  | No       | -                               |
 
 ## Outputs
 
@@ -187,6 +189,60 @@ Distributes tests based on estimated complexity to balance execution time across
 - Large files (>5000 chars): +1 point
 
 Tests are sorted by complexity (highest first) and distributed using a bin-packing algorithm to balance total complexity across shards.
+
+### Historical Data (Memory-Based Improvement)
+
+Use historical execution time data to optimize shard distribution based on actual test performance from previous runs.
+
+**Setup:**
+
+1. **Collect execution times** after running tests:
+
+```yaml
+- name: Run Tests
+  id: test-run
+  run: |
+    start=$(date +%s)
+    sbt ${{ steps.shard.outputs.test-commands }}
+    end=$(date +%s)
+    echo "execution-time=$((end - start))" >> $GITHUB_OUTPUT
+
+- name: Update historical data
+  run: |
+    # Aggregate execution times per test file
+    # Save to .github/test-times.json
+```
+
+2. **Use historical data** in sharding:
+
+```yaml
+- name: Shard Tests
+  uses: ./
+  with:
+    max-shards: 4
+    algorithm: test-file-count # or 'complexity'
+    use-historical-data: true
+    historical-data-path: '.github/test-times.json'
+```
+
+**How it works:**
+
+- Loads execution times from JSON file (format: `{ "test-file.scala": 45.2 }`)
+- Uses historical times as weights instead of complexity scores
+- Falls back to complexity/round-robin if historical data unavailable
+- Works with both `test-file-count` and `complexity` algorithms
+
+**Data format:**
+
+```json
+{
+  "src/test/scala/com/example/Test1.scala": 45.2,
+  "src/test/scala/com/example/Test2.scala": 12.8,
+  "src/test/scala/com/example/IntegrationTest.scala": 120.5
+}
+```
+
+Times are in seconds. The algorithm balances total execution time across shards.
 
 ## Auto-Shard Mode
 

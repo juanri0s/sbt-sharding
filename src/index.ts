@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import { glob } from 'glob';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 export async function discoverTestFiles(testPattern: string): Promise<string[]> {
@@ -49,27 +49,51 @@ export function testFileToSbtCommand(testFile: string): string {
   return `testOnly ${testClass}`;
 }
 
-export function shardByTestFileCount(testFiles: string[], maxShards: number): string[][] {
-  const totalFiles = testFiles.length;
-  const actualShards = Math.min(maxShards, totalFiles);
-
-  if (totalFiles === 0) {
-    return [];
-  }
-
-  const shards: string[][] = Array.from({ length: actualShards }, () => []);
-
-  testFiles.forEach((file, index) => {
-    const shardIndex = index % actualShards;
-    shards[shardIndex].push(file);
-  });
-
-  return shards;
-}
-
 interface TestComplexity {
   file: string;
   score: number;
+}
+
+interface HistoricalData {
+  [testFile: string]: number;
+}
+
+export function loadHistoricalData(dataPath: string): HistoricalData | null {
+  if (!dataPath) {
+    return null;
+  }
+
+  try {
+    const fullPath = dataPath.startsWith('/') ? dataPath : join(process.cwd(), dataPath);
+    if (!existsSync(fullPath)) {
+      core.info(`Historical data file not found: ${dataPath}`);
+      return null;
+    }
+
+    const content = readFileSync(fullPath, 'utf-8');
+    const data = JSON.parse(content) as HistoricalData;
+
+    const validEntries = Object.entries(data).filter(
+      ([_, time]) => typeof time === 'number' && time > 0
+    );
+    core.info(`Loaded historical data for ${validEntries.length} test files`);
+    return Object.fromEntries(validEntries);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    core.warning(`Failed to load historical data from ${dataPath}: ${errorMessage}`);
+    return null;
+  }
+}
+
+export function getTestWeight(
+  testFile: string,
+  historicalData: HistoricalData | null,
+  complexityScore: number
+): number {
+  if (historicalData && historicalData[testFile]) {
+    return historicalData[testFile];
+  }
+  return complexityScore;
 }
 
 export function analyzeTestComplexity(testFile: string): number {
@@ -136,7 +160,11 @@ export function analyzeTestComplexity(testFile: string): number {
   return score;
 }
 
-export function shardByComplexity(testFiles: string[], maxShards: number): string[][] {
+export function shardByComplexity(
+  testFiles: string[],
+  maxShards: number,
+  historicalData: HistoricalData | null = null
+): string[][] {
   const totalFiles = testFiles.length;
   const actualShards = Math.min(maxShards, totalFiles);
 
@@ -144,17 +172,21 @@ export function shardByComplexity(testFiles: string[], maxShards: number): strin
     return [];
   }
 
-  const complexities: TestComplexity[] = testFiles.map((file) => ({
-    file,
-    score: analyzeTestComplexity(file),
-  }));
+  const weights: TestComplexity[] = testFiles.map((file) => {
+    const complexityScore = analyzeTestComplexity(file);
+    const weight = getTestWeight(file, historicalData, complexityScore);
+    return {
+      file,
+      score: weight,
+    };
+  });
 
-  complexities.sort((a, b) => b.score - a.score);
+  weights.sort((a, b) => b.score - a.score);
 
   const shards: string[][] = Array.from({ length: actualShards }, () => []);
   const shardScores: number[] = Array.from({ length: actualShards }, () => 0);
 
-  for (const test of complexities) {
+  for (const test of weights) {
     let minScoreIndex = 0;
     let minScore = shardScores[0];
 
@@ -168,6 +200,57 @@ export function shardByComplexity(testFiles: string[], maxShards: number): strin
     shards[minScoreIndex].push(test.file);
     shardScores[minScoreIndex] += test.score;
   }
+
+  return shards;
+}
+
+export function shardByTestFileCount(
+  testFiles: string[],
+  maxShards: number,
+  historicalData: HistoricalData | null = null
+): string[][] {
+  const totalFiles = testFiles.length;
+  const actualShards = Math.min(maxShards, totalFiles);
+
+  if (totalFiles === 0) {
+    return [];
+  }
+
+  if (historicalData && Object.keys(historicalData).length > 0) {
+    const weights: TestComplexity[] = testFiles.map((file) => ({
+      file,
+      score: historicalData[file] || 1,
+    }));
+
+    weights.sort((a, b) => b.score - a.score);
+
+    const shards: string[][] = Array.from({ length: actualShards }, () => []);
+    const shardScores: number[] = Array.from({ length: actualShards }, () => 0);
+
+    for (const test of weights) {
+      let minScoreIndex = 0;
+      let minScore = shardScores[0];
+
+      for (let i = 1; i < actualShards; i++) {
+        if (shardScores[i] < minScore) {
+          minScore = shardScores[i];
+          minScoreIndex = i;
+        }
+      }
+
+      shards[minScoreIndex].push(test.file);
+      shardScores[minScoreIndex] += test.score;
+    }
+
+    return shards;
+  }
+
+  const shards: string[][] = Array.from({ length: actualShards }, () => []);
+
+  testFiles.forEach((file, index) => {
+    const shardIndex = index % actualShards;
+    shards[shardIndex].push(file);
+  });
 
   return shards;
 }
@@ -192,10 +275,20 @@ export async function run(): Promise<void> {
     const algorithm = core.getInput('algorithm') || 'test-file-count';
     const testPattern = core.getInput('test-pattern') || '**/*Test.scala,**/*Spec.scala';
     const testEnvVars = core.getInput('test-env-vars') || '';
+    const useHistoricalData = core.getBooleanInput('use-historical-data');
+    const historicalDataPath = core.getInput('historical-data-path') || '';
 
     const shardInput = core.getInput('shard-number');
     const shardEnv = process.env.GITHUB_SHARD;
     const currentShard = parseInt(shardInput || shardEnv || '1', 10);
+
+    let historicalData: HistoricalData | null = null;
+    if (useHistoricalData && historicalDataPath) {
+      historicalData = loadHistoricalData(historicalDataPath);
+      if (historicalData) {
+        core.info(`Using historical data to optimize shard distribution`);
+      }
+    }
 
     core.info(`Discovering test files with pattern: ${testPattern}`);
     const testFiles = await discoverTestFiles(testPattern);
@@ -229,10 +322,10 @@ export async function run(): Promise<void> {
     let shards: string[][];
     switch (algorithm) {
       case 'test-file-count':
-        shards = shardByTestFileCount(testFiles, maxShards);
+        shards = shardByTestFileCount(testFiles, maxShards, historicalData);
         break;
       case 'complexity':
-        shards = shardByComplexity(testFiles, maxShards);
+        shards = shardByComplexity(testFiles, maxShards, historicalData);
         break;
       default:
         throw new Error(`Unknown algorithm: ${algorithm}`);
@@ -285,6 +378,13 @@ export async function run(): Promise<void> {
 
     core.exportVariable('SBT_TEST_FILES', currentShardFiles.join(','));
     core.exportVariable('SBT_TEST_COMMANDS', testCommands.join(' '));
+
+    if (useHistoricalData) {
+      core.setOutput('shard-execution-time-key', `shard-${currentShard}-execution-time`);
+      core.info(
+        `\nTo collect execution time for this shard, set output 'shard-${currentShard}-execution-time' to the execution time in seconds after running tests`
+      );
+    }
 
     if (currentShardFiles.length > 0) {
       core.info(`\nCommand: sbt ${finalCommands}`);

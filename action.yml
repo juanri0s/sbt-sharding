@@ -14,9 +14,9 @@ inputs:
     required: false
     default: 'round-robin'
   test-pattern:
-    description: 'Pattern to match test files (default: **/*Test.scala,**/*Spec.scala)'
+    description: 'Pattern to match test files (default: **/*Test.scala,**/*Spec.scala,**/Test*.scala,**/Spec*.scala)'
     required: false
-    default: '**/*Test.scala,**/*Spec.scala'
+    default: '**/*Test.scala,**/*Spec.scala,**/Test*.scala,**/Spec*.scala'
 outputs:
   total-shards:
     description: 'Total number of shards created'

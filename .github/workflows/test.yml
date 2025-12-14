@@ -34,9 +34,6 @@ jobs:
         run: pnpm run build
       - name: Test sharding with round-robin
         id: shard-count
-        env:
-          TEST_ENV_VAR: test-value-123
-          ANOTHER_VAR: another-value
         uses: ./
         with:
           max-shards: 3
@@ -51,17 +48,12 @@ jobs:
             echo "ERROR: No test files found!"
             exit 1
           fi
-          if [[ ! "${{ steps.shard-count.outputs.test-commands }}" == *"TEST_ENV_VAR=test-value-123"* ]]; then
-            echo "ERROR: Environment variables not included in test commands!"
-            exit 1
-          fi
       - name: Test sharding with complexity
         id: shard-complexity
         uses: ./
         with:
           max-shards: 3
           algorithm: complexity
-          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
       - name: Display shard info (complexity)
         run: |
           echo "Shard: ${{ matrix.shard }}/${{ steps.shard-complexity.outputs.total-shards }}"

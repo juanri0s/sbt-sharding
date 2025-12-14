@@ -115,12 +115,12 @@ jobs:
 
 ## Inputs
 
-| Input               | Description                                                                                                             | Required | Default                         |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
-| `max-shards`        | Maximum number of shards to split tests into (ignored if `auto-shard-matrix` is true)                                   | No       | -                               |
-| `auto-shard-matrix` | Automatically determine the number of shards based on test file count and output only the matrix (no file distribution) | No       | `false`                         |
-| `algorithm`         | Sharding algorithm to use                                                                                               | No       | `round-robin`                   |
-| `test-pattern`      | Comma-separated glob patterns for test files                                                                            | No       | `**/*Test.scala,**/*Spec.scala` |
+| Input               | Description                                                                                                             | Required | Default                                                       |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------- |
+| `max-shards`        | Maximum number of shards to split tests into (ignored if `auto-shard-matrix` is true)                                   | No       | -                                                             |
+| `auto-shard-matrix` | Automatically determine the number of shards based on test file count and output only the matrix (no file distribution) | No       | `false`                                                       |
+| `algorithm`         | Sharding algorithm to use                                                                                               | No       | `round-robin`                                                 |
+| `test-pattern`      | Comma-separated glob patterns for test files                                                                            | No       | `**/*Test.scala,**/*Spec.scala,**/Test*.scala,**/Spec*.scala` |
 
 ## Outputs
 

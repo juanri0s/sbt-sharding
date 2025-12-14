@@ -239,7 +239,9 @@ export async function run(): Promise<void> {
     const autoShardMatrix = core.getBooleanInput('auto-shard-matrix');
     const maxShardsInput = core.getInput('max-shards');
     const algorithm = core.getInput('algorithm') || 'round-robin';
-    const testPattern = core.getInput('test-pattern') || '**/*Test.scala,**/*Spec.scala';
+    const testPattern =
+      core.getInput('test-pattern') ||
+      '**/*Test.scala,**/*Spec.scala,**/Test*.scala,**/Spec*.scala';
     const currentShard = 1;
 
     core.info(`Discovering test files with pattern: ${testPattern}`);

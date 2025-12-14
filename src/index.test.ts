@@ -482,7 +482,8 @@ describe('run', () => {
 
     await run();
 
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Test files in shard 1:'));
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Shard distribution:'));
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Shard 1:'));
     expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Command:'));
   });
 

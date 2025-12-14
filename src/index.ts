@@ -241,7 +241,14 @@ export async function run(): Promise<void> {
     const currentShardFiles = shards[shardIndex] || [];
 
     core.info(`Total shards: ${totalShards}`);
-    core.info(`Current shard: ${currentShard} (0-indexed: ${shardIndex})`);
+    core.info(`\nShard distribution:`);
+    shards.forEach((shardFiles, idx) => {
+      core.info(`  Shard ${idx + 1}: ${shardFiles.length} test file(s)`);
+      shardFiles.forEach((file) => {
+        core.info(`    - ${file}`);
+      });
+    });
+    core.info(`\nCurrent shard: ${currentShard} (0-indexed: ${shardIndex})`);
     core.info(`Test files in this shard: ${currentShardFiles.length}`);
 
     core.setOutput('shard-number', currentShard.toString());
@@ -278,8 +285,6 @@ export async function run(): Promise<void> {
     core.exportVariable('SBT_TEST_COMMANDS', testCommands.join(' '));
 
     if (currentShardFiles.length > 0) {
-      core.info(`\nTest files in shard ${currentShard}:`);
-      currentShardFiles.forEach((file) => core.info(`  - ${file}`));
       core.info(`\nCommand: sbt ${finalCommands}`);
     } else {
       core.warning(`No test files assigned to shard ${currentShard}`);

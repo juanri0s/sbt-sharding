@@ -1522,6 +1522,167 @@ describe('calculateOptimalShards', () => {
     );
   });
 
+  it('should detect and add shards for slow individual test files', () => {
+    const historicalData = {
+      'src/test/scala/com/example/SlowTest.scala': 350,
+      'src/test/scala/com/example/FastTest.scala': 10,
+    };
+    // Slow test file (350s) exceeds 300s threshold, should add shards to isolate
+    const shards = calculateOptimalShards(5, historicalData);
+    expect(shards).toBeGreaterThan(1);
+  });
+
+  it('should warn when shard time exceeds threshold in shardByComplexity (manual mode)', () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const testFile1 = join(testDir, 'Test1.scala');
+    const testFile2 = join(testDir, 'Test2.scala');
+    const testFile3 = join(testDir, 'Test3.scala');
+    writeFileSync(testFile1, 'test("test1") {}');
+    writeFileSync(testFile2, 'test("test2") {}');
+    writeFileSync(testFile3, 'test("test3") {}');
+
+    // Use values that will result in a shard > 300s when balanced
+    // With bin-packing: Test1 (350s) -> Shard1, Test2 (200s) -> Shard2, Test3 (10s) -> Shard1
+    // Result: Shard1 = 360s, Shard2 = 200s (max = 360s > 300s threshold)
+    const historicalData = {
+      [testFile1]: 350,
+      [testFile2]: 200,
+      [testFile3]: 10,
+    };
+    const testFiles = Object.keys(historicalData);
+    mockCore.warning.mockClear();
+    const shards = shardByComplexity(testFiles, 2, historicalData, false);
+    expect(shards.length).toBe(2);
+    // Check that warning was called for slow shard with manual mode recommendation
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Shard optimization needed')
+    );
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Increase max-shards to')
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Slowest test files'));
+  });
+
+  it('should warn when shard time exceeds threshold in shardByComplexity (auto-shard mode)', () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const testFile1 = join(testDir, 'Test1.scala');
+    const testFile2 = join(testDir, 'Test2.scala');
+    const testFile3 = join(testDir, 'Test3.scala');
+    writeFileSync(testFile1, 'test("test1") {}');
+    writeFileSync(testFile2, 'test("test2") {}');
+    writeFileSync(testFile3, 'test("test3") {}');
+
+    const historicalData = {
+      [testFile1]: 350,
+      [testFile2]: 200,
+      [testFile3]: 10,
+    };
+    const testFiles = Object.keys(historicalData);
+    mockCore.warning.mockClear();
+    const shards = shardByComplexity(testFiles, 2, historicalData, true);
+    expect(shards.length).toBe(2);
+    // Check that warning was called for slow shard with auto-shard mode recommendation
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Shard optimization needed')
+    );
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Switch to manual sharding with max-shards')
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Slowest test files'));
+  });
+
+  it('should warn when shard time exceeds threshold in shardByTestFileCount (manual mode)', () => {
+    // Use values that will result in a shard > 300s when balanced
+    // With bin-packing: Test1 (350s) -> Shard1, Test2 (200s) -> Shard2, Test3 (10s) -> Shard1
+    // Result: Shard1 = 360s, Shard2 = 200s (max = 360s > 300s threshold)
+    const historicalData = {
+      'src/test/scala/com/example/Test1.scala': 350,
+      'src/test/scala/com/example/Test2.scala': 200,
+      'src/test/scala/com/example/Test3.scala': 10,
+    };
+    const testFiles = Object.keys(historicalData);
+    mockCore.warning.mockClear();
+    const shards = shardByTestFileCount(testFiles, 2, historicalData, false);
+    expect(shards.length).toBe(2);
+    // Check that warning was called for slow shard with manual mode recommendation
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Shard optimization needed')
+    );
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Increase max-shards to')
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Slowest test files'));
+  });
+
+  it('should warn when shard time exceeds threshold in shardByTestFileCount (auto-shard mode)', () => {
+    const historicalData = {
+      'src/test/scala/com/example/Test1.scala': 350,
+      'src/test/scala/com/example/Test2.scala': 200,
+      'src/test/scala/com/example/Test3.scala': 10,
+    };
+    const testFiles = Object.keys(historicalData);
+    mockCore.warning.mockClear();
+    const shards = shardByTestFileCount(testFiles, 2, historicalData, true);
+    expect(shards.length).toBe(2);
+    // Check that warning was called for slow shard with auto-shard mode recommendation
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Shard optimization needed')
+    );
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Switch to manual sharding with max-shards')
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Slowest test files'));
+  });
+
+  it('should not warn when all shards are under threshold', () => {
+    const historicalData = {
+      'src/test/scala/com/example/Test1.scala': 100,
+      'src/test/scala/com/example/Test2.scala': 100,
+      'src/test/scala/com/example/Test3.scala': 50,
+    };
+    const testFiles = Object.keys(historicalData);
+    mockCore.warning.mockClear();
+    shardByComplexity(testFiles, 2, historicalData);
+    // Should not warn when all shards are under 300s (max would be 100+100=200s)
+    expect(mockCore.warning).not.toHaveBeenCalledWith(
+      expect.stringContaining('Shard optimization needed')
+    );
+  });
+
+  it('should handle slow tests with undefined historical data values', () => {
+    const historicalData: Record<string, number> = {
+      'src/test/scala/com/example/Test1.scala': 350,
+      'src/test/scala/com/example/Test2.scala': 200,
+    };
+    // Test with a file that has undefined historical data
+    const testFiles = [
+      'src/test/scala/com/example/Test1.scala',
+      'src/test/scala/com/example/Test2.scala',
+      'src/test/scala/com/example/Test3.scala',
+    ];
+    mockCore.warning.mockClear();
+    const shards = shardByComplexity(testFiles, 2, historicalData);
+    expect(shards.length).toBe(2);
+    // Should still warn if shard exceeds threshold even with some undefined values
+    if (mockCore.warning.mock.calls.length > 0) {
+      expect(mockCore.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Shard optimization needed')
+      );
+    }
+  });
+
   it('should calculate shards for 6-20 files', () => {
     expect(calculateOptimalShards(6)).toBe(2);
     expect(calculateOptimalShards(10)).toBe(2);

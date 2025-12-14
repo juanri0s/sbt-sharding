@@ -209,7 +209,8 @@ export function analyzeTestComplexity(testFile: string): number {
 export function shardByComplexity(
   testFiles: string[],
   maxShards: number,
-  historicalData: HistoricalData | null = null
+  historicalData: HistoricalData | null = null,
+  isAutoShard: boolean = false
 ): string[][] {
   const totalFiles = testFiles.length;
   const actualShards = Math.min(maxShards, totalFiles);
@@ -270,19 +271,62 @@ export function shardByComplexity(
     const hasAnyData = filesWithData.length > 0;
 
     if (hasAnyData) {
-      core.info(`\nShard distribution (balanced by execution time):`);
-      shards.forEach((shardFiles, idx) => {
+      const MAX_SHARD_TIME = 300;
+      const shardTimes = shards.map((shardFiles) => {
         let totalTime = 0;
         for (const file of shardFiles) {
           const time = historicalData![file];
           if (time !== undefined) {
             totalTime += time;
-          } else {
-            totalTime += 0;
           }
         }
+        return totalTime;
+      });
+
+      const maxShardTime = Math.max(...shardTimes);
+      if (maxShardTime > MAX_SHARD_TIME && actualShards < totalFiles) {
+        const recommendedShards = Math.ceil(
+          shardTimes.reduce((sum, time) => sum + time, 0) / MAX_SHARD_TIME
+        );
+        const finalRecommendedShards = Math.min(recommendedShards, totalFiles);
+
+        if (isAutoShard) {
+          core.warning(
+            `\n⚠️  Shard optimization needed: Maximum shard time (${maxShardTime.toFixed(1)}s) exceeds threshold (${MAX_SHARD_TIME}s)`
+          );
+          core.warning(
+            `   Recommendation: Switch to manual sharding with max-shards: ${finalRecommendedShards} (currently using auto-shard with ${actualShards} shards)`
+          );
+        } else {
+          core.warning(
+            `\n⚠️  Shard optimization needed: Maximum shard time (${maxShardTime.toFixed(1)}s) exceeds threshold (${MAX_SHARD_TIME}s)`
+          );
+          core.warning(
+            `   Recommendation: Increase max-shards to ${finalRecommendedShards} or isolate slow test suites. Current shards: ${actualShards}`
+          );
+        }
+
+        const slowTests = testFiles
+          .filter((file) => {
+            const time = historicalData![file];
+            return time !== undefined && time > MAX_SHARD_TIME / 2;
+          })
+          .sort((a, b) => (historicalData![b] || 0) - (historicalData![a] || 0));
+
+        if (slowTests.length > 0) {
+          core.info(`\nSlowest test files (consider isolating):`);
+          slowTests.slice(0, 5).forEach((file) => {
+            core.info(`  ${file}: ${historicalData![file]}s`);
+          });
+        }
+      }
+
+      core.info(`\nShard distribution (balanced by execution time):`);
+      shards.forEach((shardFiles, idx) => {
+        const totalTime = shardTimes[idx];
+        const status = totalTime > MAX_SHARD_TIME ? ' ⚠️  (slow)' : '';
         core.info(
-          `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total`
+          `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total${status}`
         );
       });
     } else {
@@ -305,7 +349,8 @@ export function shardByComplexity(
 export function shardByTestFileCount(
   testFiles: string[],
   maxShards: number,
-  historicalData: HistoricalData | null = null
+  historicalData: HistoricalData | null = null,
+  isAutoShard: boolean = false
 ): string[][] {
   const totalFiles = testFiles.length;
   const actualShards = Math.min(maxShards, totalFiles);
@@ -358,11 +403,55 @@ export function shardByTestFileCount(
     }
 
     if (hasAnyData) {
+      const MAX_SHARD_TIME = 300;
+      const shardTimes = shards.map((shardFiles) =>
+        shardFiles.reduce((sum, file) => sum + (historicalData[file] || 0), 0)
+      );
+
+      const maxShardTime = Math.max(...shardTimes);
+      if (maxShardTime > MAX_SHARD_TIME && actualShards < totalFiles) {
+        const recommendedShards = Math.ceil(
+          shardTimes.reduce((sum, time) => sum + time, 0) / MAX_SHARD_TIME
+        );
+        const finalRecommendedShards = Math.min(recommendedShards, totalFiles);
+
+        if (isAutoShard) {
+          core.warning(
+            `\n⚠️  Shard optimization needed: Maximum shard time (${maxShardTime.toFixed(1)}s) exceeds threshold (${MAX_SHARD_TIME}s)`
+          );
+          core.warning(
+            `   Recommendation: Switch to manual sharding with max-shards: ${finalRecommendedShards} (currently using auto-shard with ${actualShards} shards)`
+          );
+        } else {
+          core.warning(
+            `\n⚠️  Shard optimization needed: Maximum shard time (${maxShardTime.toFixed(1)}s) exceeds threshold (${MAX_SHARD_TIME}s)`
+          );
+          core.warning(
+            `   Recommendation: Increase max-shards to ${finalRecommendedShards} or isolate slow test suites. Current shards: ${actualShards}`
+          );
+        }
+
+        const slowTests = testFiles
+          .filter((file) => {
+            const time = historicalData[file];
+            return time !== undefined && time > MAX_SHARD_TIME / 2;
+          })
+          .sort((a, b) => (historicalData[b] || 0) - (historicalData[a] || 0));
+
+        if (slowTests.length > 0) {
+          core.info(`\nSlowest test files (consider isolating):`);
+          slowTests.slice(0, 5).forEach((file) => {
+            core.info(`  ${file}: ${historicalData[file]}s`);
+          });
+        }
+      }
+
       core.info(`\nShard distribution (balanced by execution time):`);
       shards.forEach((shardFiles, idx) => {
-        const totalTime = shardFiles.reduce((sum, file) => sum + (historicalData[file] || 0), 0);
+        const totalTime = shardTimes[idx];
+        const status = totalTime > MAX_SHARD_TIME ? ' ⚠️  (slow)' : '';
         core.info(
-          `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total`
+          `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total${status}`
         );
       });
     } else {
@@ -410,10 +499,22 @@ export function calculateOptimalShards(
     const avgTimePerFile = totalExecutionTime / Object.keys(historicalData).length;
     const estimatedTotalTime = avgTimePerFile * testFileCount;
 
+    const MAX_SHARD_TIME = 300;
+    const TARGET_SHARD_TIME = 200;
+
     if (estimatedTotalTime > 600) {
-      baseShards = Math.max(baseShards, Math.ceil(estimatedTotalTime / 300));
+      baseShards = Math.max(baseShards, Math.ceil(estimatedTotalTime / MAX_SHARD_TIME));
     } else if (estimatedTotalTime > 300) {
-      baseShards = Math.max(baseShards, Math.ceil(estimatedTotalTime / 200));
+      baseShards = Math.max(baseShards, Math.ceil(estimatedTotalTime / TARGET_SHARD_TIME));
+    }
+
+    const maxSingleFileTime = Math.max(...Object.values(historicalData));
+    if (maxSingleFileTime > MAX_SHARD_TIME && baseShards < testFileCount) {
+      const isolatedShardsNeeded = Math.ceil(maxSingleFileTime / MAX_SHARD_TIME);
+      baseShards = Math.max(baseShards, isolatedShardsNeeded);
+      core.info(
+        `Detected slow test file (~${maxSingleFileTime.toFixed(1)}s), adding shards to isolate: ${baseShards} total`
+      );
     }
   }
 
@@ -494,10 +595,10 @@ export async function run(): Promise<void> {
     let shards: string[][];
     switch (algorithm) {
       case 'test-file-count':
-        shards = shardByTestFileCount(testFiles, maxShards, historicalData);
+        shards = shardByTestFileCount(testFiles, maxShards, historicalData, autoShard);
         break;
       case 'complexity':
-        shards = shardByComplexity(testFiles, maxShards, historicalData);
+        shards = shardByComplexity(testFiles, maxShards, historicalData, autoShard);
         break;
       default:
         throw new Error(`Unknown algorithm: ${algorithm}`);

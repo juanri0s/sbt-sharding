@@ -132,6 +132,8 @@ export async function run(): Promise<void> {
   }
 }
 
+/* c8 ignore start */
 if (!process.env.VITEST) {
   void run();
 }
+/* c8 ignore end */

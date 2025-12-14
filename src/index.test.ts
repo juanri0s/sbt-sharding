@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock @actions/core before importing
 vi.mock('@actions/core', () => ({
   getInput: vi.fn(),
   setOutput: vi.fn(),
@@ -10,7 +9,6 @@ vi.mock('@actions/core', () => ({
   exportVariable: vi.fn(),
 }));
 
-// Mock glob before importing
 vi.mock('glob', async () => {
   const actual = await vi.importActual('glob');
   return {
@@ -23,7 +21,6 @@ import * as core from '@actions/core';
 import { glob } from 'glob';
 import { discoverTestFiles, testFileToSbtCommand, shardByTestFileCount, run } from './index.js';
 
-// Type assertions for mocked functions
 const mockGlob = glob as ReturnType<typeof vi.fn>;
 const mockCore = core as {
   getInput: ReturnType<typeof vi.fn>;
@@ -144,6 +141,14 @@ describe('testFileToSbtCommand', () => {
   it('should handle files without extension', () => {
     const result = testFileToSbtCommand('src/test/scala/com/example/MyTest');
     expect(result).toBe('testOnly com.example.MyTest');
+  });
+
+  it('should return empty string when testClass is empty after processing', () => {
+    const result = testFileToSbtCommand('src/test/scala/.scala');
+    expect(result).toBe('');
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      'Could not convert test file path to class name: src/test/scala/.scala'
+    );
   });
 });
 
@@ -297,7 +302,7 @@ describe('run', () => {
       if (key === 'shard-number') return '';
       return '';
     });
-    
+
     delete process.env.GITHUB_SHARD;
 
     mockGlob.mockResolvedValue([
@@ -409,13 +414,16 @@ describe('run', () => {
       if (key === 'shard-number') return '10';
       return '';
     });
-    
+
     mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
 
     await run();
 
     expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '10');
-    expect(mockCore.setOutput).toHaveBeenCalledWith('test-files', 'src/test/scala/com/example/Test1.scala');
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-files',
+      'src/test/scala/com/example/Test1.scala'
+    );
   });
 
   it('should log test files and commands when shard has files', async () => {
@@ -443,14 +451,40 @@ describe('run', () => {
       if (key === 'shard-number') return '3';
       return '';
     });
-    
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala', 'src/test/scala/com/example/Test2.scala']);
+
+    mockGlob.mockResolvedValue([
+      'src/test/scala/com/example/Test1.scala',
+      'src/test/scala/com/example/Test2.scala',
+    ]);
 
     await run();
 
     expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '3');
     expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '2');
-    expect(mockCore.setOutput).toHaveBeenCalledWith('test-files', 'src/test/scala/com/example/Test2.scala');
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-files',
+      'src/test/scala/com/example/Test2.scala'
+    );
     expect(mockCore.warning).not.toHaveBeenCalled();
+  });
+
+  it('should handle error and call setFailed', async () => {
+    mockCore.getInput.mockImplementation(() => {
+      throw new Error('Input error');
+    });
+
+    await run();
+
+    expect(mockCore.setFailed).toHaveBeenCalledWith('Input error');
+  });
+
+  it('should handle non-Error exceptions', async () => {
+    mockCore.getInput.mockImplementation(() => {
+      throw 'String error';
+    });
+
+    await run();
+
+    expect(mockCore.setFailed).toHaveBeenCalledWith('String error');
   });
 });

@@ -922,7 +922,7 @@ describe('run', () => {
 
     expect(mockCore.setOutput).toHaveBeenCalled();
     expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('No historical data available, using')
+      expect.stringContaining('Using test-file-count algorithm')
     );
   });
 
@@ -962,11 +962,59 @@ describe('run', () => {
     await run();
 
     expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Historical execution times:')
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(
       expect.stringContaining('test file(s) have no historical data')
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Shard distribution (balanced by execution time)')
     );
     expect(mockCore.setOutput).toHaveBeenCalled();
   });
-});
+
+  it('should log historical data with complexity algorithm when some files missing', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'partial-complexity.json');
+    const historicalData = {
+      'src/test/scala/com/example/Test1.scala': 100,
+    };
+    writeFileSync(dataFile, JSON.stringify(historicalData));
+
+    const testFile1 = join(testDir, 'Test1.scala');
+    const testFile2 = join(testDir, 'Test2.scala');
+    writeFileSync(testFile1, 'class Test1');
+    writeFileSync(testFile2, 'class Test2');
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '2';
+      if (key === 'algorithm') return 'complexity';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue([testFile1, testFile2]);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('test file(s) have no historical data, using complexity scores for those')
+    );
+    expect(mockCore.setOutput).toHaveBeenCalled();
+  });
 
   it('should output execution time key when historical data is enabled', async () => {
     const testDir = join(process.cwd(), 'test-temp');

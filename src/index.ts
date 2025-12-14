@@ -173,11 +173,19 @@ export function shardByComplexity(
   }
 
   if (historicalData && Object.keys(historicalData).length > 0) {
+    const filesWithData = testFiles.filter((file) => historicalData[file]);
     const filesWithoutData = testFiles.filter((file) => !historicalData[file]);
+
+    if (filesWithData.length > 0) {
+      core.info(`\nHistorical execution times:`);
+      filesWithData.forEach((file) => {
+        core.info(`  ${file}: ${historicalData[file]}s`);
+      });
+    }
 
     if (filesWithoutData.length > 0) {
       core.info(
-        `${filesWithoutData.length} test file(s) have no historical data, using complexity scores for those`
+        `\n${filesWithoutData.length} test file(s) have no historical data, using complexity scores for those`
       );
     }
   }
@@ -211,6 +219,16 @@ export function shardByComplexity(
     shardScores[minScoreIndex] += test.score;
   }
 
+  if (historicalData && Object.keys(historicalData).length > 0) {
+    core.info(`\nShard distribution (balanced by execution time):`);
+    shards.forEach((shardFiles, idx) => {
+      const totalTime = shardFiles.reduce((sum, file) => sum + (historicalData![file] || 0), 0);
+      core.info(
+        `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total`
+      );
+    });
+  }
+
   return shards;
 }
 
@@ -227,11 +245,19 @@ export function shardByTestFileCount(
   }
 
   if (historicalData && Object.keys(historicalData).length > 0) {
+    const filesWithData = testFiles.filter((file) => historicalData[file]);
     const filesWithoutData = testFiles.filter((file) => !historicalData[file]);
+
+    if (filesWithData.length > 0) {
+      core.info(`\nHistorical execution times:`);
+      filesWithData.forEach((file) => {
+        core.info(`  ${file}: ${historicalData[file]}s`);
+      });
+    }
 
     if (filesWithoutData.length > 0) {
       core.info(
-        `${filesWithoutData.length} test file(s) have no historical data, using default distribution for those`
+        `\n${filesWithoutData.length} test file(s) have no historical data, using default distribution for those`
       );
     }
 
@@ -259,6 +285,14 @@ export function shardByTestFileCount(
       shards[minScoreIndex].push(test.file);
       shardScores[minScoreIndex] += test.score;
     }
+
+    core.info(`\nShard distribution (balanced by execution time):`);
+    shards.forEach((shardFiles, idx) => {
+      const totalTime = shardFiles.reduce((sum, file) => sum + (historicalData[file] || 0), 0);
+      core.info(
+        `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total`
+      );
+    });
 
     return shards;
   }
@@ -365,13 +399,33 @@ export async function run(): Promise<void> {
     const currentShardFiles = shards[shardIndex] || [];
 
     core.info(`Total shards: ${totalShards}`);
-    core.info(`\nShard distribution:`);
-    shards.forEach((shardFiles, idx) => {
-      core.info(`  Shard ${idx + 1}: ${shardFiles.length} test file(s)`);
-      shardFiles.forEach((file) => {
-        core.info(`    - ${file}`);
+
+    if (!historicalData || Object.keys(historicalData).length === 0) {
+      core.info(`\nShard distribution:`);
+      shards.forEach((shardFiles, idx) => {
+        core.info(`  Shard ${idx + 1}: ${shardFiles.length} test file(s)`);
+        shardFiles.forEach((file) => {
+          core.info(`    - ${file}`);
+        });
       });
-    });
+    } else {
+      core.info(`\nShard distribution:`);
+      shards.forEach((shardFiles, idx) => {
+        const totalTime = shardFiles.reduce((sum, file) => sum + (historicalData![file] || 0), 0);
+        core.info(
+          `  Shard ${idx + 1}: ${shardFiles.length} test file(s), ~${totalTime.toFixed(1)}s total`
+        );
+        shardFiles.forEach((file) => {
+          const time = historicalData![file];
+          if (time) {
+            core.info(`    - ${file} (${time}s)`);
+          } else {
+            core.info(`    - ${file} (no historical data)`);
+          }
+        });
+      });
+    }
+
     core.info(`\nCurrent shard: ${currentShard} (0-indexed: ${shardIndex})`);
     core.info(`Test files in this shard: ${currentShardFiles.length}`);
 

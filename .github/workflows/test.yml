@@ -87,7 +87,7 @@ jobs:
             exit 1
           fi
 
-  test-dynamic-matrix:
+  test-auto-shard-matrix-generation:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.determine.outputs.shard-matrix }}
@@ -112,8 +112,8 @@ jobs:
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           shard-number: 1
 
-  test-dynamic-matrix-execution:
-    needs: test-dynamic-matrix
+  test-auto-shard-matrix-execution:
+    needs: test-auto-shard-matrix-generation
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

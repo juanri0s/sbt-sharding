@@ -293,6 +293,7 @@ describe('saveHistoricalData', () => {
     } catch {
       // Directory might already exist
     }
+    vi.clearAllMocks();
   });
 
   it('should create new file with execution times', () => {
@@ -354,21 +355,43 @@ describe('saveHistoricalData', () => {
   });
 
   it('should handle non-Error exceptions in catch block', () => {
-    const dataFile = join(testDir, 'error-save.json');
+    const invalidPath = '/root/invalid/nested/path/file.json';
     const testFiles = ['test1.scala'];
 
-    const fs = require('fs');
-    const originalWriteFileSync = fs.writeFileSync;
-    fs.writeFileSync = vi.fn(() => {
-      throw 'String exception';
-    });
+    mockCore.warning.mockClear();
+    saveHistoricalData(invalidPath, testFiles, 50);
 
-    saveHistoricalData(dataFile, testFiles, 50);
     expect(mockCore.warning).toHaveBeenCalledWith(
       expect.stringContaining('Failed to save historical data')
     );
+  });
 
-    fs.writeFileSync = originalWriteFileSync;
+  it('should handle non-Error exceptions (string) in catch block to test String(error) branch', () => {
+    const dataFile = join(testDir, 'string-error-coverage.json');
+    const testFiles = ['test1.scala'];
+
+    mockCore.warning.mockClear();
+    mockCore.info.mockClear();
+
+    mkdirSync(dirname(dataFile), { recursive: true });
+
+    const originalStringify = JSON.stringify;
+    JSON.stringify = vi.fn(() => {
+      throw 'Non-Error string exception for coverage';
+    }) as typeof JSON.stringify;
+
+    saveHistoricalData(dataFile, testFiles, 50);
+
+    expect(mockCore.warning).toHaveBeenCalled();
+    const warningCalls = mockCore.warning.mock.calls;
+    const hasStringError = warningCalls.some(
+      (call) =>
+        String(call[0]).includes('Failed to save historical data') &&
+        String(call[0]).includes('Non-Error string exception for coverage')
+    );
+    expect(hasStringError).toBe(true);
+
+    JSON.stringify = originalStringify;
   });
 
   it('should handle invalid JSON in existing file', () => {
@@ -396,34 +419,25 @@ describe('saveHistoricalData', () => {
 
   it('should handle absolute paths starting with /', () => {
     const dataFile = join(testDir, 'absolute-save.json');
-    // Create a path that definitely starts with / to test the true branch
     const absolutePath = dataFile.startsWith('/') ? dataFile : '/' + dataFile;
     const testFiles = ['test1.scala'];
 
-    // Mock writeFileSync to succeed so we can test the absolute path branch
     saveHistoricalData(absolutePath, testFiles, 50);
 
-    // Verify it was called (the function should handle absolute paths)
     expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Updated historical data'));
   });
 
-  it('should handle non-Error exceptions in saveHistoricalData', () => {
-    const dataFile = join(testDir, 'non-error-exception.json');
+  it('should handle relative paths (not starting with /)', () => {
+    const relativePath = join(testDir, 'relative', 'times.json');
     const testFiles = ['test1.scala'];
 
-    const fs = require('fs');
-    const originalWriteFileSync = fs.writeFileSync;
-    fs.writeFileSync = vi.fn(() => {
-      throw 'String error';
-    });
+    mockCore.info.mockClear();
 
-    saveHistoricalData(dataFile, testFiles, 50);
+    const relativeFromTestDir = relativePath.replace(process.cwd() + '/', '');
 
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to save historical data')
-    );
+    saveHistoricalData(relativeFromTestDir, testFiles, 50);
 
-    fs.writeFileSync = originalWriteFileSync;
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Updated historical data'));
   });
 
   it('should return early if dataPath is empty', () => {
@@ -1666,7 +1680,6 @@ describe('calculateOptimalShards', () => {
       'src/test/scala/com/example/Test1.scala': 350,
       'src/test/scala/com/example/Test2.scala': 200,
     };
-    // Test with a file that has undefined historical data
     const testFiles = [
       'src/test/scala/com/example/Test1.scala',
       'src/test/scala/com/example/Test2.scala',
@@ -1675,7 +1688,6 @@ describe('calculateOptimalShards', () => {
     mockCore.warning.mockClear();
     const shards = shardByComplexity(testFiles, 2, historicalData);
     expect(shards.length).toBe(2);
-    // Should still warn if shard exceeds threshold even with some undefined values
     if (mockCore.warning.mock.calls.length > 0) {
       expect(mockCore.warning).toHaveBeenCalledWith(
         expect.stringContaining('Shard optimization needed')

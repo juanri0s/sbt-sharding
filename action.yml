@@ -6,7 +6,7 @@ inputs:
     description: 'Maximum number of shards to split tests into'
     required: true
   algorithm:
-    description: 'Sharding algorithm to use (currently supports: "test-file-count")'
+    description: 'Sharding algorithm to use (supports: "test-file-count", "complexity")'
     required: false
     default: 'test-file-count'
   test-pattern:

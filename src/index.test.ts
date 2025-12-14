@@ -19,7 +19,16 @@ vi.mock('glob', async () => {
 
 import * as core from '@actions/core';
 import { glob } from 'glob';
-import { discoverTestFiles, testFileToSbtCommand, shardByTestFileCount, run } from './index.js';
+import {
+  discoverTestFiles,
+  testFileToSbtCommand,
+  shardByTestFileCount,
+  shardByComplexity,
+  analyzeTestComplexity,
+  run,
+} from './index.js';
+import { writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 const mockGlob = glob as ReturnType<typeof vi.fn>;
 const mockCore = core as {
@@ -359,6 +368,23 @@ describe('run', () => {
     expect(mockCore.setFailed).toHaveBeenCalledWith('max-shards must be a positive integer');
   });
 
+  it('should use complexity algorithm', async () => {
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '2';
+      if (key === 'algorithm') return 'complexity';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.setOutput).toHaveBeenCalled();
+    expect(mockCore.setFailed).not.toHaveBeenCalled();
+  });
+
   it('should throw error for unknown algorithm', async () => {
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
@@ -540,5 +566,183 @@ describe('run', () => {
     );
 
     delete process.env.JAVA_OPTS;
+  });
+});
+
+describe('analyzeTestComplexity', () => {
+  const testDir = join(process.cwd(), 'test-temp');
+
+  beforeEach(() => {
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+  });
+
+  afterEach(() => {
+    // Cleanup handled by test framework
+  });
+
+  it('should assign base score of 1 to simple tests', () => {
+    const file = join(testDir, 'SimpleTest.scala');
+    writeFileSync(file, 'class SimpleTest extends FunSuite { test("test") {} }');
+    expect(analyzeTestComplexity(file)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should increase score for property tests', () => {
+    const file = join(testDir, 'PropertyTest.scala');
+    writeFileSync(file, 'class PropertyTest extends PropertySpec');
+    const score = analyzeTestComplexity(file);
+    expect(score).toBeGreaterThan(1);
+  });
+
+  it('should increase score for integration tests', () => {
+    const file = join(testDir, 'IntegrationTest.scala');
+    writeFileSync(file, 'class IntegrationTest extends FunSuite');
+    const score = analyzeTestComplexity(file);
+    expect(score).toBeGreaterThan(1);
+  });
+
+  it('should increase score for container tests', () => {
+    const file = join(testDir, 'ContainerTest.scala');
+    writeFileSync(file, '@container class ContainerTest');
+    const score = analyzeTestComplexity(file);
+    expect(score).toBeGreaterThan(1);
+  });
+
+  it('should increase score for files with many tests', () => {
+    const manyTests = Array.from({ length: 25 }, () => 'test("test") {}').join('\n');
+    const file = join(testDir, 'ManyTests.scala');
+    writeFileSync(file, `class ManyTests extends FunSuite { ${manyTests} }`);
+    const score = analyzeTestComplexity(file);
+    expect(score).toBeGreaterThan(1);
+  });
+
+  it('should handle missing files gracefully', () => {
+    const score = analyzeTestComplexity('nonexistent/file.scala');
+    expect(score).toBeGreaterThanOrEqual(1);
+  });
+
+  it('should increase score for files with property in content', () => {
+    const file = join(testDir, 'Test.scala');
+    writeFileSync(file, 'class Test { property("test") }');
+    const score = analyzeTestComplexity(file);
+    expect(score).toBeGreaterThan(1);
+  });
+
+  it('should increase score for files with container annotation', () => {
+    const file = join(testDir, 'Test.scala');
+    writeFileSync(file, '@container class Test');
+    const score = analyzeTestComplexity(file);
+    expect(score).toBeGreaterThan(1);
+  });
+
+  it('should increase score for files with integration in content', () => {
+    const file = join(testDir, 'Test.scala');
+    writeFileSync(file, '@integration class Test');
+    const score = analyzeTestComplexity(file);
+    expect(score).toBeGreaterThan(1);
+  });
+
+  it('should increase score for large files', () => {
+    const largeContent = 'class Test { ' + 'test("test") {} '.repeat(100) + ' }';
+    const file = join(testDir, 'LargeTest.scala');
+    writeFileSync(file, largeContent);
+    const score = analyzeTestComplexity(file);
+    expect(score).toBeGreaterThan(1);
+  });
+
+  it('should reduce score for unit tests', () => {
+    const file = join(testDir, 'UnitTest.scala');
+    writeFileSync(file, 'class UnitTest');
+    const score = analyzeTestComplexity(file);
+    expect(score).toBe(1);
+  });
+
+  it('should increase score for files with 10-20 tests', () => {
+    const manyTests = Array.from({ length: 15 }, () => 'test("test") {}').join('\n');
+    const file = join(testDir, 'MediumTests.scala');
+    writeFileSync(file, `class MediumTests extends FunSuite { ${manyTests} }`);
+    const score = analyzeTestComplexity(file);
+    expect(score).toBeGreaterThan(1);
+  });
+
+  it('should increase score for files larger than 5000 chars', () => {
+    const largeContent = 'x'.repeat(6000);
+    const file = join(testDir, 'LargeFile.scala');
+    writeFileSync(file, largeContent);
+    const score = analyzeTestComplexity(file);
+    expect(score).toBeGreaterThan(1);
+  });
+});
+
+describe('shardByComplexity', () => {
+  const testDir = join(process.cwd(), 'test-temp');
+
+  beforeEach(() => {
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+  });
+
+  it('should distribute tests by complexity', () => {
+    const simpleFile = join(testDir, 'SimpleTest.scala');
+    const complexFile = join(testDir, 'PropertyTest.scala');
+    writeFileSync(simpleFile, 'class SimpleTest extends FunSuite');
+    writeFileSync(complexFile, 'class PropertyTest extends PropertySpec');
+
+    const result = shardByComplexity([simpleFile, complexFile], 2);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].length + result[1].length).toBe(2);
+  });
+
+  it('should balance complex tests across shards', () => {
+    const files = [
+      join(testDir, 'Property1.scala'),
+      join(testDir, 'Property2.scala'),
+      join(testDir, 'Property3.scala'),
+      join(testDir, 'Simple1.scala'),
+    ];
+
+    files.forEach((file, i) => {
+      const content = i < 3 ? 'class PropertyTest extends PropertySpec' : 'class SimpleTest';
+      writeFileSync(file, content);
+    });
+
+    const result = shardByComplexity(files, 2);
+
+    expect(result).toHaveLength(2);
+    const totalFiles = result[0].length + result[1].length;
+    expect(totalFiles).toBe(4);
+  });
+
+  it('should return empty array for no files', () => {
+    const result = shardByComplexity([], 3);
+    expect(result).toEqual([]);
+  });
+
+  it('should handle single file', () => {
+    const file = join(testDir, 'SingleTest.scala');
+    writeFileSync(file, 'class Test');
+    const result = shardByComplexity([file], 3);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual([file]);
+  });
+
+  it('should sort tests by complexity before distributing', () => {
+    const simpleFile = join(testDir, 'SimpleTest.scala');
+    const complexFile = join(testDir, 'PropertyTest.scala');
+    writeFileSync(simpleFile, 'class SimpleTest');
+    writeFileSync(complexFile, 'class PropertyTest extends PropertySpec');
+
+    const result = shardByComplexity([simpleFile, complexFile], 2);
+
+    expect(result).toHaveLength(2);
+    const complexShard = result.find((shard) => shard.includes(complexFile));
+    expect(complexShard).toBeDefined();
   });
 });

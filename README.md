@@ -127,6 +127,20 @@ The action also sets these environment variables for convenience:
 
 Distributes test files evenly across shards using round-robin.
 
+### `complexity`
+
+Distributes tests based on estimated complexity to balance execution time across shards.
+
+**Complexity factors:**
+
+- Property tests: +3 points
+- Integration/container/E2E tests: +4 points
+- Unit tests: -1 point (minimum 1)
+- Files with many tests (>20): +2 points, (>10): +1 point
+- Large files (>5000 chars): +1 point
+
+Tests are sorted by complexity (highest first) and distributed using a bin-packing algorithm to balance total complexity across shards.
+
 ## Requirements
 
 - Node.js 24+ (automatically provided by GitHub Actions)

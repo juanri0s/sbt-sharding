@@ -1,5 +1,7 @@
 import * as core from '@actions/core';
 import { glob } from 'glob';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 export async function discoverTestFiles(testPattern: string): Promise<string[]> {
   const patterns = testPattern.split(',').map((p) => p.trim());
@@ -65,6 +67,111 @@ export function shardByTestFileCount(testFiles: string[], maxShards: number): st
   return shards;
 }
 
+interface TestComplexity {
+  file: string;
+  score: number;
+}
+
+export function analyzeTestComplexity(testFile: string): number {
+  let score = 1;
+
+  const fileName = testFile.toLowerCase();
+
+  if (
+    fileName.includes('property') ||
+    fileName.includes('proptest') ||
+    fileName.includes('propertytest')
+  ) {
+    score += 3;
+  }
+
+  if (
+    fileName.includes('integration') ||
+    fileName.includes('container') ||
+    fileName.includes('e2e') ||
+    fileName.includes('endtoend')
+  ) {
+    score += 4;
+  }
+
+  if (fileName.includes('unit') || fileName.includes('unittest')) {
+    score = Math.max(score - 1, 1);
+  }
+
+  try {
+    const filePath = testFile.startsWith('/') ? testFile : join(process.cwd(), testFile);
+    const content = readFileSync(filePath, 'utf-8').toLowerCase();
+
+    if (content.includes('property') || content.includes('proptest')) {
+      score += 2;
+    }
+
+    if (content.includes('container') || content.includes('@container')) {
+      score += 3;
+    }
+
+    if (content.includes('integration') || content.includes('@integration')) {
+      score += 2;
+    }
+
+    const testCount = (content.match(/\btest\s*\(/g) || []).length;
+    const itCount = (content.match(/\bit\s*\(/g) || []).length;
+    const describeCount = (content.match(/\bdescribe\s*\(/g) || []).length;
+
+    const totalTests = testCount + itCount + describeCount;
+    if (totalTests > 20) {
+      score += 2;
+    } else if (totalTests > 10) {
+      score += 1;
+    }
+
+    const fileSize = content.length;
+    if (fileSize > 5000) {
+      score += 1;
+    }
+  } catch {
+    core.warning(`Could not read test file for complexity analysis: ${testFile}`);
+  }
+
+  return score;
+}
+
+export function shardByComplexity(testFiles: string[], maxShards: number): string[][] {
+  const totalFiles = testFiles.length;
+  const actualShards = Math.min(maxShards, totalFiles);
+
+  if (totalFiles === 0) {
+    return [];
+  }
+
+  const complexities: TestComplexity[] = testFiles.map((file) => ({
+    file,
+    score: analyzeTestComplexity(file),
+  }));
+
+  complexities.sort((a, b) => b.score - a.score);
+
+  const shards: string[][] = Array.from({ length: actualShards }, () => []);
+  const shardScores: number[] = Array.from({ length: actualShards }, () => 0);
+
+  for (const test of complexities) {
+    let minScoreIndex = 0;
+    let minScore = shardScores[0];
+
+    for (let i = 1; i < actualShards; i++) {
+      if (shardScores[i] < minScore) {
+        minScore = shardScores[i];
+        minScoreIndex = i;
+      }
+    }
+
+    shards[minScoreIndex].push(test.file);
+    shardScores[minScoreIndex] += test.score;
+  }
+
+  return shards;
+}
+
 export async function run(): Promise<void> {
   try {
     const maxShards = parseInt(core.getInput('max-shards'), 10);
@@ -97,6 +204,9 @@ export async function run(): Promise<void> {
     switch (algorithm) {
       case 'test-file-count':
         shards = shardByTestFileCount(testFiles, maxShards);
+        break;
+      case 'complexity':
+        shards = shardByComplexity(testFiles, maxShards);
         break;
       default:
         throw new Error(`Unknown algorithm: ${algorithm}`);

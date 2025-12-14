@@ -220,13 +220,37 @@ export function shardByComplexity(
   }
 
   if (historicalData && Object.keys(historicalData).length > 0) {
-    core.info(`\nShard distribution (balanced by execution time):`);
-    shards.forEach((shardFiles, idx) => {
-      const totalTime = shardFiles.reduce((sum, file) => sum + (historicalData![file] || 0), 0);
-      core.info(
-        `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total`
-      );
-    });
+    const filesWithData = testFiles.filter((file) => historicalData[file]);
+    const hasAnyData = filesWithData.length > 0;
+
+    if (hasAnyData) {
+      core.info(`\nShard distribution (balanced by execution time):`);
+      shards.forEach((shardFiles, idx) => {
+        let totalTime = 0;
+        for (const file of shardFiles) {
+          const time = historicalData![file];
+          if (time !== undefined) {
+            totalTime += time;
+          } else {
+            totalTime += 0;
+          }
+        }
+        core.info(
+          `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total`
+        );
+      });
+    } else {
+      core.info(`\nShard distribution (using complexity scores - no historical data available):`);
+      shards.forEach((shardFiles, idx) => {
+        const totalComplexity = shardFiles.reduce((sum, file) => {
+          const complexityScore = analyzeTestComplexity(file);
+          return sum + complexityScore;
+        }, 0);
+        core.info(
+          `  Shard ${idx + 1}: ${shardFiles.length} file(s), complexity score: ${totalComplexity}`
+        );
+      });
+    }
   }
 
   return shards;
@@ -247,6 +271,7 @@ export function shardByTestFileCount(
   if (historicalData && Object.keys(historicalData).length > 0) {
     const filesWithData = testFiles.filter((file) => historicalData[file]);
     const filesWithoutData = testFiles.filter((file) => !historicalData[file]);
+    const hasAnyData = filesWithData.length > 0;
 
     if (filesWithData.length > 0) {
       core.info(`\nHistorical execution times:`);
@@ -286,13 +311,23 @@ export function shardByTestFileCount(
       shardScores[minScoreIndex] += test.score;
     }
 
-    core.info(`\nShard distribution (balanced by execution time):`);
-    shards.forEach((shardFiles, idx) => {
-      const totalTime = shardFiles.reduce((sum, file) => sum + (historicalData[file] || 0), 0);
+    if (hasAnyData) {
+      core.info(`\nShard distribution (balanced by execution time):`);
+      shards.forEach((shardFiles, idx) => {
+        const totalTime = shardFiles.reduce((sum, file) => sum + (historicalData[file] || 0), 0);
+        core.info(
+          `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total`
+        );
+      });
+    } else {
       core.info(
-        `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total`
+        `\nShard distribution (using execution time weights - no historical data available):`
       );
-    });
+      shards.forEach((shardFiles, idx) => {
+        const totalWeight = shardFiles.reduce((sum, file) => sum + (historicalData[file] || 1), 0);
+        core.info(`  Shard ${idx + 1}: ${shardFiles.length} file(s), total weight: ${totalWeight}`);
+      });
+    }
 
     return shards;
   }
@@ -409,20 +444,36 @@ export async function run(): Promise<void> {
         });
       });
     } else {
+      const filesWithData = testFiles.filter((file) => historicalData![file]);
+      const hasAnyData = filesWithData.length > 0;
+
       core.info(`\nShard distribution:`);
       shards.forEach((shardFiles, idx) => {
-        const totalTime = shardFiles.reduce((sum, file) => sum + (historicalData![file] || 0), 0);
-        core.info(
-          `  Shard ${idx + 1}: ${shardFiles.length} test file(s), ~${totalTime.toFixed(1)}s total`
-        );
-        shardFiles.forEach((file) => {
-          const time = historicalData![file];
-          if (time) {
-            core.info(`    - ${file} (${time}s)`);
-          } else {
-            core.info(`    - ${file} (no historical data)`);
-          }
-        });
+        if (hasAnyData) {
+          const totalTime = shardFiles.reduce((sum, file) => sum + (historicalData![file] || 0), 0);
+          core.info(
+            `  Shard ${idx + 1}: ${shardFiles.length} test file(s), ~${totalTime.toFixed(1)}s total`
+          );
+          shardFiles.forEach((file) => {
+            const time = historicalData![file];
+            if (time) {
+              core.info(`    - ${file} (${time}s)`);
+            } else {
+              core.info(`    - ${file} (no historical data, weight: 1)`);
+            }
+          });
+        } else {
+          const totalWeight = shardFiles.reduce(
+            (sum, file) => sum + (historicalData![file] || 1),
+            0
+          );
+          core.info(
+            `  Shard ${idx + 1}: ${shardFiles.length} test file(s), total weight: ${totalWeight}`
+          );
+          shardFiles.forEach((file) => {
+            core.info(`    - ${file} (no historical data, weight: 1)`);
+          });
+        }
       });
     }
 

@@ -937,6 +937,7 @@ describe('run', () => {
     const dataFile = join(testDir, 'partial-times.json');
     const historicalData = {
       'src/test/scala/com/example/Test1.scala': 100,
+      'src/test/scala/com/example/Test2.scala': 50,
     };
     writeFileSync(dataFile, JSON.stringify(historicalData));
 
@@ -957,6 +958,8 @@ describe('run', () => {
     mockGlob.mockResolvedValue([
       'src/test/scala/com/example/Test1.scala',
       'src/test/scala/com/example/Test2.scala',
+      'src/test/scala/com/example/Test3.scala',
+      'src/test/scala/com/example/Test4.scala',
     ]);
 
     await run();
@@ -970,6 +973,11 @@ describe('run', () => {
     expect(mockCore.info).toHaveBeenCalledWith(
       expect.stringContaining('Shard distribution (balanced by execution time)')
     );
+    const infoCalls = (mockCore.info as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
+    const shardInfo = infoCalls.find(
+      (call) => typeof call === 'string' && call.includes('Shard') && call.includes('~')
+    );
+    expect(shardInfo).toBeDefined();
     expect(mockCore.setOutput).toHaveBeenCalled();
   });
 
@@ -982,8 +990,58 @@ describe('run', () => {
     }
 
     const dataFile = join(testDir, 'partial-complexity.json');
+    const testFile1 = join(testDir, 'Test1.scala');
+    const testFile2 = join(testDir, 'Test2.scala');
+    const testFile3 = join(testDir, 'Test3.scala');
+    writeFileSync(testFile1, 'class Test1');
+    writeFileSync(testFile2, 'class Test2');
+    writeFileSync(testFile3, 'class Test3');
+
     const historicalData = {
-      'src/test/scala/com/example/Test1.scala': 100,
+      [testFile1]: 100,
+    };
+    writeFileSync(dataFile, JSON.stringify(historicalData));
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '2';
+      if (key === 'algorithm') return 'complexity';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue([testFile1, testFile2, testFile3]);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'test file(s) have no historical data, using complexity scores for those'
+      )
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Shard distribution (balanced by execution time)')
+    );
+    expect(mockCore.setOutput).toHaveBeenCalled();
+  });
+
+  it('should show complexity scores when historical data exists but no files match', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'no-match.json');
+    const historicalData = {
+      'different/path/Test.scala': 100,
     };
     writeFileSync(dataFile, JSON.stringify(historicalData));
 
@@ -1011,8 +1069,11 @@ describe('run', () => {
     await run();
 
     expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('test file(s) have no historical data, using complexity scores for those')
+      expect.stringContaining(
+        'Shard distribution (using complexity scores - no historical data available)'
+      )
     );
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('complexity score:'));
     expect(mockCore.setOutput).toHaveBeenCalled();
   });
 

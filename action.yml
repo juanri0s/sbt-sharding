@@ -28,7 +28,7 @@ inputs:
     required: false
     default: 'false'
   historical-data-path:
-    description: 'Path to JSON file containing historical test execution times (e.g., ".github/test-times.json")'
+    description: 'Path to JSON file containing historical test execution times (e.g., ".github/test-times.json"). Execution times are automatically collected from the test step via GitHub API.'
     required: false
 outputs:
   shard-number:

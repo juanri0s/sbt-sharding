@@ -1,7 +1,55 @@
 import * as core from '@actions/core';
+import * as github from '@actions/github';
 import { glob } from 'glob';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+
+async function getTestStepExecutionTime(): Promise<number> {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error('GITHUB_TOKEN not available');
+  }
+
+  const octokit = github.getOctokit(token);
+  const context = github.context;
+
+  try {
+    const jobs = await octokit.rest.actions.listJobsForWorkflowRun({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      run_id: context.runId,
+    });
+
+    for (const job of jobs.data.jobs || []) {
+      if (job.steps) {
+        const completedSteps = job.steps.filter(
+          (step) => step.completed_at && step.started_at && step.status === 'completed'
+        );
+
+        if (completedSteps.length > 0) {
+          const testStep =
+            completedSteps.find(
+              (step) =>
+                step.name &&
+                (step.name.toLowerCase().includes('test') ||
+                  step.name.toLowerCase().includes('run') ||
+                  step.name.toLowerCase().includes('sbt'))
+            ) || completedSteps[completedSteps.length - 1];
+
+          if (testStep && testStep.completed_at && testStep.started_at) {
+            const start = new Date(testStep.started_at).getTime();
+            const end = new Date(testStep.completed_at).getTime();
+            return (end - start) / 1000;
+          }
+        }
+      }
+    }
+    return 0;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to get step execution time: ${errorMessage}`);
+  }
+}
 
 export async function discoverTestFiles(testPattern: string): Promise<string[]> {
   const patterns = testPattern.split(',').map((p) => p.trim());
@@ -66,7 +114,7 @@ export function loadHistoricalData(dataPath: string): HistoricalData | null {
   try {
     const fullPath = dataPath.startsWith('/') ? dataPath : join(process.cwd(), dataPath);
     if (!existsSync(fullPath)) {
-      core.info(`Historical data file not found: ${dataPath}`);
+      core.info(`Historical data file not found: ${dataPath} (will be created after first run)`);
       return null;
     }
 
@@ -82,6 +130,52 @@ export function loadHistoricalData(dataPath: string): HistoricalData | null {
     const errorMessage = error instanceof Error ? error.message : String(error);
     core.warning(`Failed to load historical data from ${dataPath}: ${errorMessage}`);
     return null;
+  }
+}
+
+export function saveHistoricalData(
+  dataPath: string,
+  testFiles: string[],
+  executionTime: number
+): void {
+  if (!dataPath) {
+    return;
+  }
+
+  try {
+    const fullPath = dataPath.startsWith('/') ? dataPath : join(process.cwd(), dataPath);
+    const dir = dirname(fullPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+
+    let existingData: HistoricalData = {};
+    if (existsSync(fullPath)) {
+      try {
+        const content = readFileSync(fullPath, 'utf-8');
+        existingData = JSON.parse(content) as HistoricalData;
+      } catch {
+        existingData = {};
+      }
+    }
+
+    const timePerFile = testFiles.length > 0 ? executionTime / testFiles.length : 0;
+    const updatedData: HistoricalData = { ...existingData };
+
+    for (const file of testFiles) {
+      const existingTime = existingData[file];
+      if (existingTime !== undefined) {
+        updatedData[file] = (existingTime + timePerFile) / 2;
+      } else {
+        updatedData[file] = timePerFile;
+      }
+    }
+
+    writeFileSync(fullPath, JSON.stringify(updatedData, null, 2) + '\n');
+    core.info(`Updated historical data for ${testFiles.length} test file(s) in ${dataPath}`);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    core.warning(`Failed to save historical data to ${dataPath}: ${errorMessage}`);
   }
 }
 
@@ -513,11 +607,22 @@ export async function run(): Promise<void> {
     core.exportVariable('SBT_TEST_FILES', currentShardFiles.join(','));
     core.exportVariable('SBT_TEST_COMMANDS', testCommands.join(' '));
 
-    if (useHistoricalData) {
-      core.setOutput('shard-execution-time-key', `shard-${currentShard}-execution-time`);
-      core.info(
-        `\nTo collect execution time for this shard, set output 'shard-${currentShard}-execution-time' to the execution time in seconds after running tests`
-      );
+    if (useHistoricalData && historicalDataPath) {
+      try {
+        const executionTime = await getTestStepExecutionTime();
+        if (executionTime > 0) {
+          saveHistoricalData(historicalDataPath, currentShardFiles, executionTime);
+          core.info(
+            `Automatically collected execution time: ${executionTime}s for ${currentShardFiles.length} test file(s)`
+          );
+        } else {
+          core.info(`Historical data will be loaded from: ${historicalDataPath}`);
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        core.debug(`Could not automatically collect execution time: ${errorMessage}`);
+        core.info(`Historical data will be loaded from: ${historicalDataPath}`);
+      }
     }
 
     if (currentShardFiles.length > 0) {

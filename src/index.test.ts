@@ -18,6 +18,14 @@ vi.mock('glob', async () => {
   };
 });
 
+vi.mock('@actions/github', () => ({
+  getOctokit: vi.fn(),
+  context: {
+    repo: { owner: 'test', repo: 'test' },
+    runId: 123,
+  },
+}));
+
 import * as core from '@actions/core';
 import { glob } from 'glob';
 import {
@@ -28,11 +36,12 @@ import {
   analyzeTestComplexity,
   calculateOptimalShards,
   loadHistoricalData,
+  saveHistoricalData,
   getTestWeight,
   run,
 } from './index.js';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
+import { join, dirname } from 'path';
 
 const mockGlob = glob as ReturnType<typeof vi.fn>;
 const mockCore = core as {
@@ -164,6 +173,16 @@ describe('testFileToSbtCommand', () => {
       'Could not convert test file path to class name: src/test/scala/.scala'
     );
   });
+
+  it('should handle container test files', () => {
+    const result = testFileToSbtCommand('src/test/scala/com/example/ContainerTest.scala');
+    expect(result).toBe('testOnly com.example.ContainerTest');
+  });
+
+  it('should handle property test files', () => {
+    const result = testFileToSbtCommand('src/test/scala/com/example/PropertyTest.scala');
+    expect(result).toBe('testOnly com.example.PropertyTest');
+  });
 });
 
 describe('loadHistoricalData', () => {
@@ -268,6 +287,163 @@ describe('loadHistoricalData', () => {
     );
 
     JSON.parse = originalParse;
+  });
+});
+
+describe('saveHistoricalData', () => {
+  const testDir = join(process.cwd(), 'test-temp');
+
+  beforeEach(() => {
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+  });
+
+  it('should create new file with execution times', () => {
+    const dataFile = join(testDir, 'new-times.json');
+    const testFiles = ['test1.scala', 'test2.scala'];
+    saveHistoricalData(dataFile, testFiles, 100);
+
+    const result = loadHistoricalData(dataFile);
+    expect(result).toBeDefined();
+    expect(result![testFiles[0]]).toBe(50);
+    expect(result![testFiles[1]]).toBe(50);
+  });
+
+  it('should update existing file with averaged times', () => {
+    const dataFile = join(testDir, 'update-times.json');
+    const existingData = {
+      'test1.scala': 100,
+      'test2.scala': 50,
+    };
+    writeFileSync(dataFile, JSON.stringify(existingData));
+
+    const testFiles = ['test1.scala', 'test3.scala'];
+    saveHistoricalData(dataFile, testFiles, 60);
+
+    const result = loadHistoricalData(dataFile);
+    expect(result).toBeDefined();
+    expect(result!['test1.scala']).toBe(65);
+    expect(result!['test2.scala']).toBe(50);
+    expect(result!['test3.scala']).toBe(30);
+  });
+
+  it('should create directory if it does not exist', () => {
+    const dataFile = join(testDir, 'nested', 'times.json');
+    const testFiles = ['test1.scala'];
+    saveHistoricalData(dataFile, testFiles, 50);
+
+    expect(existsSync(dataFile)).toBe(true);
+    const result = loadHistoricalData(dataFile);
+    expect(result).toBeDefined();
+    expect(result![testFiles[0]]).toBe(50);
+  });
+
+  it('should handle empty test files array', () => {
+    const dataFile = join(testDir, 'empty-times.json');
+    saveHistoricalData(dataFile, [], 100);
+
+    const result = loadHistoricalData(dataFile);
+    expect(result).toEqual({});
+  });
+
+  it('should handle errors when saving', () => {
+    const invalidPath = '/root/invalid/path/to/file.json';
+    const testFiles = ['test1.scala'];
+    saveHistoricalData(invalidPath, testFiles, 50);
+
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to save historical data')
+    );
+  });
+
+  it('should handle non-Error exceptions in catch block', () => {
+    const dataFile = join(testDir, 'error-save.json');
+    const testFiles = ['test1.scala'];
+
+    const fs = require('fs');
+    const originalWriteFileSync = fs.writeFileSync;
+    fs.writeFileSync = vi.fn(() => {
+      throw 'String exception';
+    });
+
+    saveHistoricalData(dataFile, testFiles, 50);
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to save historical data')
+    );
+
+    fs.writeFileSync = originalWriteFileSync;
+  });
+
+  it('should handle invalid JSON in existing file', () => {
+    const dataFile = join(testDir, 'invalid-json-save.json');
+    writeFileSync(dataFile, 'invalid json');
+
+    const testFiles = ['test1.scala'];
+    saveHistoricalData(dataFile, testFiles, 50);
+
+    const result = loadHistoricalData(dataFile);
+    expect(result).toBeDefined();
+    expect(result!['test1.scala']).toBe(50);
+  });
+
+  it('should handle case when directory already exists', () => {
+    const dataFile = join(testDir, 'existing-dir', 'times.json');
+    mkdirSync(dirname(dataFile), { recursive: true });
+    const testFiles = ['test1.scala'];
+    saveHistoricalData(dataFile, testFiles, 50);
+
+    const result = loadHistoricalData(dataFile);
+    expect(result).toBeDefined();
+    expect(result!['test1.scala']).toBe(50);
+  });
+
+  it('should handle absolute paths starting with /', () => {
+    const dataFile = join(testDir, 'absolute-save.json');
+    const absolutePath = '/' + dataFile;
+    const testFiles = ['test1.scala'];
+
+    try {
+      saveHistoricalData(absolutePath, testFiles, 50);
+      if (existsSync(absolutePath)) {
+        const result = loadHistoricalData(absolutePath);
+        expect(result).toBeDefined();
+      }
+    } catch {
+      expect(mockCore.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to save historical data')
+      );
+    }
+  });
+
+  it('should handle non-Error exceptions in saveHistoricalData', () => {
+    const dataFile = join(testDir, 'non-error-exception.json');
+    const testFiles = ['test1.scala'];
+
+    const fs = require('fs');
+    const originalWriteFileSync = fs.writeFileSync;
+    fs.writeFileSync = vi.fn(() => {
+      throw 'String error';
+    });
+
+    saveHistoricalData(dataFile, testFiles, 50);
+
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to save historical data')
+    );
+
+    fs.writeFileSync = originalWriteFileSync;
+  });
+
+  it('should return early if dataPath is empty', () => {
+    vi.clearAllMocks();
+    saveHistoricalData('', ['test1.scala'], 50);
+    const updateCalls = (mockCore.info as ReturnType<typeof vi.fn>).mock.calls.filter((call) =>
+      String(call[0]).includes('Updated historical data')
+    );
+    expect(updateCalls.length).toBe(0);
   });
 });
 
@@ -1077,7 +1253,7 @@ describe('run', () => {
     expect(mockCore.setOutput).toHaveBeenCalled();
   });
 
-  it('should output execution time key when historical data is enabled', async () => {
+  it('should load historical data when enabled', async () => {
     const testDir = join(process.cwd(), 'test-temp');
     try {
       mkdirSync(testDir, { recursive: true });
@@ -1106,10 +1282,116 @@ describe('run', () => {
 
     await run();
 
-    expect(mockCore.setOutput).toHaveBeenCalledWith(
-      'shard-execution-time-key',
-      'shard-1-execution-time'
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Loaded historical data'));
+  });
+
+  it('should save historical data when test step execution time is available', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'save-times.json');
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const githubModule = await import('@actions/github');
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listJobsForWorkflowRun: vi.fn().mockResolvedValue({
+            data: {
+              jobs: [
+                {
+                  steps: [
+                    {
+                      name: 'Run Tests',
+                      status: 'completed',
+                      started_at: '2024-01-01T00:00:00Z',
+                      completed_at: '2024-01-01T00:02:00Z',
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+
+    vi.mocked(githubModule.getOctokit).mockReturnValue(mockOctokit as any);
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue([
+      'src/test/scala/com/example/Test1.scala',
+      'src/test/scala/com/example/Test2.scala',
+    ]);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Automatically collected execution time')
     );
+    const savedData = JSON.parse(readFileSync(dataFile, 'utf-8'));
+    expect(savedData['src/test/scala/com/example/Test1.scala']).toBe(60);
+    expect(savedData['src/test/scala/com/example/Test2.scala']).toBe(60);
+
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  it('should handle missing GITHUB_TOKEN gracefully', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'no-token-times.json');
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    const originalToken = process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Loaded historical data'));
+
+    if (originalToken) {
+      process.env.GITHUB_TOKEN = originalToken;
+    }
   });
 
   it('should use auto-shard mode to calculate shards', async () => {

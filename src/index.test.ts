@@ -28,9 +28,6 @@ import {
   shardByComplexity,
   analyzeTestComplexity,
   calculateOptimalShards,
-  loadHistoricalData,
-  saveHistoricalData,
-  getTestWeight,
   run,
 } from './index.js';
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
@@ -179,302 +176,6 @@ describe('testFileToSbtCommand', () => {
   });
 });
 
-describe('loadHistoricalData', () => {
-  const testDir = join(process.cwd(), 'test-temp');
-
-  beforeEach(() => {
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-  });
-
-  it('should return null for empty path', () => {
-    expect(loadHistoricalData('')).toBeNull();
-  });
-
-  it('should return null when historical data path is not provided', () => {
-    expect(loadHistoricalData('')).toBeNull();
-  });
-
-  it('should return null for non-existent file', () => {
-    expect(loadHistoricalData('nonexistent.json')).toBeNull();
-  });
-
-  it('should load valid historical data', () => {
-    const dataFile = join(testDir, 'test-times.json');
-    const data = {
-      'test1.scala': 45.2,
-      'test2.scala': 12.8,
-    };
-    writeFileSync(dataFile, JSON.stringify(data));
-
-    const result = loadHistoricalData(dataFile);
-    expect(result).toEqual(data);
-  });
-
-  it('should filter invalid entries', () => {
-    const dataFile = join(testDir, 'test-times.json');
-    const data = {
-      'test1.scala': 45.2,
-      'test2.scala': -5,
-      'test3.scala': 0,
-      'test4.scala': 'invalid',
-      'test5.scala': 12.8,
-    };
-    writeFileSync(dataFile, JSON.stringify(data));
-
-    const result = loadHistoricalData(dataFile);
-    expect(result).toEqual({
-      'test1.scala': 45.2,
-      'test5.scala': 12.8,
-    });
-  });
-
-  it('should handle empty historical data object', () => {
-    const dataFile = join(testDir, 'empty.json');
-    writeFileSync(dataFile, JSON.stringify({}));
-
-    const result = loadHistoricalData(dataFile);
-    expect(result).toEqual({});
-  });
-
-  it('should handle absolute paths starting with /', () => {
-    const dataFile = join(testDir, 'absolute.json');
-    const data = { 'test.scala': 10 };
-    writeFileSync(dataFile, JSON.stringify(data));
-
-    const absolutePath = dataFile.startsWith('/') ? dataFile : '/' + dataFile;
-    const result = loadHistoricalData(absolutePath);
-    if (existsSync(absolutePath)) {
-      expect(result).toEqual(data);
-    } else {
-      expect(result).toBeNull();
-    }
-  });
-
-  it('should handle error when file exists but JSON is invalid', () => {
-    const dataFile = join(testDir, 'invalid-json.json');
-    writeFileSync(dataFile, 'not json {');
-
-    const result = loadHistoricalData(dataFile);
-    expect(result).toBeNull();
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to load historical data')
-    );
-  });
-
-  it('should handle JSON.parse throwing non-Error', () => {
-    const dataFile = join(testDir, 'parse-error.json');
-    writeFileSync(dataFile, '{}');
-
-    const originalParse = JSON.parse;
-    JSON.parse = vi.fn(() => {
-      throw 'String exception';
-    });
-
-    const result = loadHistoricalData(dataFile);
-    expect(result).toBeNull();
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to load historical data')
-    );
-
-    JSON.parse = originalParse;
-  });
-});
-
-describe('saveHistoricalData', () => {
-  const testDir = join(process.cwd(), 'test-temp');
-
-  beforeEach(() => {
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-    vi.clearAllMocks();
-  });
-
-  it('should create new file with execution times', () => {
-    const dataFile = join(testDir, 'new-times.json');
-    const testFiles = ['test1.scala', 'test2.scala'];
-    saveHistoricalData(dataFile, testFiles, 100);
-
-    const result = loadHistoricalData(dataFile);
-    expect(result).toBeDefined();
-    expect(result![testFiles[0]]).toBe(50);
-    expect(result![testFiles[1]]).toBe(50);
-  });
-
-  it('should update existing file with averaged times', () => {
-    const dataFile = join(testDir, 'update-times.json');
-    const existingData = {
-      'test1.scala': 100,
-      'test2.scala': 50,
-    };
-    writeFileSync(dataFile, JSON.stringify(existingData));
-
-    const testFiles = ['test1.scala', 'test3.scala'];
-    saveHistoricalData(dataFile, testFiles, 60);
-
-    const result = loadHistoricalData(dataFile);
-    expect(result).toBeDefined();
-    expect(result!['test1.scala']).toBe(65);
-    expect(result!['test2.scala']).toBe(50);
-    expect(result!['test3.scala']).toBe(30);
-  });
-
-  it('should create directory if it does not exist', () => {
-    const dataFile = join(testDir, 'nested', 'times.json');
-    const testFiles = ['test1.scala'];
-    saveHistoricalData(dataFile, testFiles, 50);
-
-    expect(existsSync(dataFile)).toBe(true);
-    const result = loadHistoricalData(dataFile);
-    expect(result).toBeDefined();
-    expect(result![testFiles[0]]).toBe(50);
-  });
-
-  it('should handle empty test files array', () => {
-    const dataFile = join(testDir, 'empty-times.json');
-    saveHistoricalData(dataFile, [], 100);
-
-    const result = loadHistoricalData(dataFile);
-    expect(result).toEqual({});
-  });
-
-  it('should handle errors when saving', () => {
-    const invalidPath = '/root/invalid/path/to/file.json';
-    const testFiles = ['test1.scala'];
-    saveHistoricalData(invalidPath, testFiles, 50);
-
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to save historical data')
-    );
-  });
-
-  it('should handle non-Error exceptions in catch block', () => {
-    const invalidPath = '/root/invalid/nested/path/file.json';
-    const testFiles = ['test1.scala'];
-
-    mockCore.warning.mockClear();
-    saveHistoricalData(invalidPath, testFiles, 50);
-
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to save historical data')
-    );
-  });
-
-  it('should handle non-Error exceptions (string) in catch block to test String(error) branch', () => {
-    const dataFile = join(testDir, 'string-error-coverage.json');
-    const testFiles = ['test1.scala'];
-
-    mockCore.warning.mockClear();
-    mockCore.info.mockClear();
-
-    mkdirSync(dirname(dataFile), { recursive: true });
-
-    const originalStringify = JSON.stringify;
-    JSON.stringify = vi.fn(() => {
-      throw 'Non-Error string exception for coverage';
-    }) as typeof JSON.stringify;
-
-    saveHistoricalData(dataFile, testFiles, 50);
-
-    expect(mockCore.warning).toHaveBeenCalled();
-    const warningCalls = mockCore.warning.mock.calls;
-    const hasStringError = warningCalls.some(
-      (call) =>
-        String(call[0]).includes('Failed to save historical data') &&
-        String(call[0]).includes('Non-Error string exception for coverage')
-    );
-    expect(hasStringError).toBe(true);
-
-    JSON.stringify = originalStringify;
-  });
-
-  it('should handle invalid JSON in existing file', () => {
-    const dataFile = join(testDir, 'invalid-json-save.json');
-    writeFileSync(dataFile, 'invalid json');
-
-    const testFiles = ['test1.scala'];
-    saveHistoricalData(dataFile, testFiles, 50);
-
-    const result = loadHistoricalData(dataFile);
-    expect(result).toBeDefined();
-    expect(result!['test1.scala']).toBe(50);
-  });
-
-  it('should handle case when directory already exists', () => {
-    const dataFile = join(testDir, 'existing-dir', 'times.json');
-    mkdirSync(dirname(dataFile), { recursive: true });
-    const testFiles = ['test1.scala'];
-    saveHistoricalData(dataFile, testFiles, 50);
-
-    const result = loadHistoricalData(dataFile);
-    expect(result).toBeDefined();
-    expect(result!['test1.scala']).toBe(50);
-  });
-
-  it('should handle absolute paths starting with /', () => {
-    const dataFile = join(testDir, 'absolute-save.json');
-    const absolutePath = dataFile.startsWith('/') ? dataFile : '/' + dataFile;
-    const testFiles = ['test1.scala'];
-
-    saveHistoricalData(absolutePath, testFiles, 50);
-
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Updated historical data'));
-  });
-
-  it('should handle relative paths (not starting with /)', () => {
-    const relativePath = join(testDir, 'relative', 'times.json');
-    const testFiles = ['test1.scala'];
-
-    mockCore.info.mockClear();
-
-    const relativeFromTestDir = relativePath.replace(process.cwd() + '/', '');
-
-    saveHistoricalData(relativeFromTestDir, testFiles, 50);
-
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Updated historical data'));
-  });
-
-  it('should return early if dataPath is empty', () => {
-    vi.clearAllMocks();
-    saveHistoricalData('', ['test1.scala'], 50);
-    const updateCalls = (mockCore.info as ReturnType<typeof vi.fn>).mock.calls.filter((call) =>
-      String(call[0]).includes('Updated historical data')
-    );
-    expect(updateCalls.length).toBe(0);
-  });
-});
-
-describe('getTestWeight', () => {
-  it('should use historical data when available', () => {
-    const historicalData = { 'test.scala': 50.5 };
-    expect(getTestWeight('test.scala', historicalData, 10)).toBe(50.5);
-  });
-
-  it('should fall back to complexity score when no historical data', () => {
-    expect(getTestWeight('test.scala', null, 10)).toBe(10);
-  });
-
-  it('should fall back to complexity score when test not in historical data', () => {
-    const historicalData = { 'other.scala': 50.5 };
-    expect(getTestWeight('test.scala', historicalData, 10)).toBe(10);
-  });
-
-  it('should use historical data when available and not null', () => {
-    const historicalData = { 'test.scala': 50.5 };
-    expect(getTestWeight('test.scala', historicalData, 10)).toBe(50.5);
-  });
-
-  it('should fall back to complexity when historical data is null', () => {
-    expect(getTestWeight('test.scala', null, 10)).toBe(10);
-  });
-});
-
 describe('shardByTestFileCount', () => {
   it('should distribute files evenly across shards', () => {
     const testFiles = ['file1.scala', 'file2.scala', 'file3.scala', 'file4.scala'];
@@ -546,7 +247,6 @@ describe('run', () => {
   it('should run successfully with valid inputs', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -582,7 +282,6 @@ describe('run', () => {
   it('should use shard-number input when provided', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -611,7 +310,6 @@ describe('run', () => {
     process.env.GITHUB_SHARD = '2';
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -635,7 +333,6 @@ describe('run', () => {
   it('should default to shard 1 when neither input nor env var is provided', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -661,7 +358,6 @@ describe('run', () => {
   it('should handle no test files found', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -689,7 +385,6 @@ describe('run', () => {
   it('should throw error for invalid max-shards', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -705,7 +400,6 @@ describe('run', () => {
   it('should throw error for NaN max-shards', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -720,7 +414,6 @@ describe('run', () => {
 
   it('should use complexity algorithm', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -742,7 +435,6 @@ describe('run', () => {
   it('should throw error for unknown algorithm', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -762,7 +454,6 @@ describe('run', () => {
   it('should use default algorithm when not provided', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -783,7 +474,6 @@ describe('run', () => {
   it('should use default test-pattern when not provided', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -804,7 +494,6 @@ describe('run', () => {
   it('should handle shard index out of bounds gracefully', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -829,7 +518,6 @@ describe('run', () => {
   it('should log test files and commands when shard has files', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -852,7 +540,6 @@ describe('run', () => {
   it('should warn when shard has no files', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -882,7 +569,6 @@ describe('run', () => {
   it('should handle error and call setFailed', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation(() => {
@@ -897,7 +583,6 @@ describe('run', () => {
   it('should handle non-Error exceptions', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation(() => {
@@ -914,7 +599,6 @@ describe('run', () => {
     process.env.SCALA_VERSION = '2.13';
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -942,7 +626,6 @@ describe('run', () => {
   it('should skip missing environment variables', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -972,398 +655,9 @@ describe('run', () => {
     delete process.env.JAVA_OPTS;
   });
 
-  it('should use historical data when enabled', async () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const dataFile = join(testDir, 'test-times.json');
-    const historicalData = {
-      'src/test/scala/com/example/Test1.scala': 100,
-      'src/test/scala/com/example/Test2.scala': 10,
-    };
-    writeFileSync(dataFile, JSON.stringify(historicalData));
-
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return dataFile;
-      return '';
-    });
-
-    mockGlob.mockResolvedValue([
-      'src/test/scala/com/example/Test1.scala',
-      'src/test/scala/com/example/Test2.scala',
-    ]);
-
-    await run();
-
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('Using historical execution time data for')
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('Distributing tests across')
-    );
-    expect(mockCore.setOutput).toHaveBeenCalled();
-  });
-
-  it('should handle missing historical data file gracefully', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return 'nonexistent.json';
-      return '';
-    });
-
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
-
-    await run();
-
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('Historical data file not found')
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('No historical data available, using')
-    );
-    expect(mockCore.setOutput).toHaveBeenCalled();
-  });
-
-  it('should handle invalid historical data gracefully', async () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const dataFile = join(testDir, 'invalid.json');
-    writeFileSync(dataFile, 'invalid json');
-
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return dataFile;
-      return '';
-    });
-
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
-
-    await run();
-
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to load historical data')
-    );
-    expect(mockCore.setOutput).toHaveBeenCalled();
-  });
-
-  it('should not use historical data when path is empty', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return '';
-      return '';
-    });
-
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
-
-    await run();
-
-    expect(mockCore.setOutput).toHaveBeenCalled();
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('Using test-file-count algorithm')
-    );
-  });
-
-  it('should log when some files have no historical data', async () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const dataFile = join(testDir, 'partial-times.json');
-    const historicalData = {
-      'src/test/scala/com/example/Test1.scala': 100,
-      'src/test/scala/com/example/Test2.scala': 50,
-    };
-    writeFileSync(dataFile, JSON.stringify(historicalData));
-
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return dataFile;
-      return '';
-    });
-
-    mockGlob.mockResolvedValue([
-      'src/test/scala/com/example/Test1.scala',
-      'src/test/scala/com/example/Test2.scala',
-      'src/test/scala/com/example/Test3.scala',
-      'src/test/scala/com/example/Test4.scala',
-    ]);
-
-    await run();
-
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('Historical execution times:')
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('test file(s) have no historical data')
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('Shard distribution (balanced by execution time)')
-    );
-    const infoCalls = (mockCore.info as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
-    const shardInfo = infoCalls.find(
-      (call) => typeof call === 'string' && call.includes('Shard') && call.includes('~')
-    );
-    expect(shardInfo).toBeDefined();
-    expect(mockCore.setOutput).toHaveBeenCalled();
-  });
-
-  it('should log historical data with complexity algorithm when some files missing', async () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const dataFile = join(testDir, 'partial-complexity.json');
-    const testFile1 = join(testDir, 'Test1.scala');
-    const testFile2 = join(testDir, 'Test2.scala');
-    const testFile3 = join(testDir, 'Test3.scala');
-    writeFileSync(testFile1, 'class Test1');
-    writeFileSync(testFile2, 'class Test2');
-    writeFileSync(testFile3, 'class Test3');
-
-    const historicalData = {
-      [testFile1]: 100,
-    };
-    writeFileSync(dataFile, JSON.stringify(historicalData));
-
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'complexity';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return dataFile;
-      return '';
-    });
-
-    mockGlob.mockResolvedValue([testFile1, testFile2, testFile3]);
-
-    await run();
-
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'test file(s) have no historical data, using complexity scores for those'
-      )
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('Shard distribution (balanced by execution time)')
-    );
-    expect(mockCore.setOutput).toHaveBeenCalled();
-  });
-
-  it('should show complexity scores when historical data exists but no files match', async () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const dataFile = join(testDir, 'no-match.json');
-    const historicalData = {
-      'different/path/Test.scala': 100,
-    };
-    writeFileSync(dataFile, JSON.stringify(historicalData));
-
-    const testFile1 = join(testDir, 'Test1.scala');
-    const testFile2 = join(testDir, 'Test2.scala');
-    writeFileSync(testFile1, 'class Test1');
-    writeFileSync(testFile2, 'class Test2');
-
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'complexity';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return dataFile;
-      return '';
-    });
-
-    mockGlob.mockResolvedValue([testFile1, testFile2]);
-
-    await run();
-
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'Shard distribution (using complexity scores - no historical data available)'
-      )
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('complexity score:'));
-    expect(mockCore.setOutput).toHaveBeenCalled();
-  });
-
-  it('should load historical data when enabled', async () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const dataFile = join(testDir, 'test-times.json');
-    writeFileSync(dataFile, JSON.stringify({ 'test.scala': 10 }));
-
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return dataFile;
-      return '';
-    });
-
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
-
-    await run();
-
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Loaded historical data'));
-  });
-
-  it('should save historical data when execution-time input is provided', async () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const dataFile = join(testDir, 'save-times.json');
-    writeFileSync(dataFile, JSON.stringify({}));
-
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return dataFile;
-      if (key === 'execution-time') return '120';
-      return '';
-    });
-
-    mockGlob.mockResolvedValue([
-      'src/test/scala/com/example/Test1.scala',
-      'src/test/scala/com/example/Test2.scala',
-    ]);
-
-    await run();
-
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Saved execution time'));
-    const savedData = JSON.parse(readFileSync(dataFile, 'utf-8'));
-    expect(savedData['src/test/scala/com/example/Test1.scala']).toBe(60);
-    expect(savedData['src/test/scala/com/example/Test2.scala']).toBe(60);
-  });
-
-  it('should handle missing execution-time input gracefully', async () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const dataFile = join(testDir, 'no-execution-time.json');
-    writeFileSync(dataFile, JSON.stringify({}));
-
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return dataFile;
-      if (key === 'execution-time') return '';
-      return '';
-    });
-
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
-
-    await run();
-
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Loaded historical data'));
-  });
-
   it('should use auto-shard mode to calculate shards', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return true;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -1394,61 +688,9 @@ describe('run', () => {
     );
   });
 
-  it('should use auto-shard mode with historical data to calculate more shards for slow test suites', async () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const dataFile = join(testDir, 'slow-suite-historical.json');
-    const historicalData = {
-      'src/test/scala/com/example/Test1.scala': 100,
-      'src/test/scala/com/example/Test2.scala': 100,
-      'src/test/scala/com/example/Test3.scala': 100,
-    };
-    writeFileSync(dataFile, JSON.stringify(historicalData));
-
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return true;
-      if (key === 'use-historical-data') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
-      if (key === 'historical-data-path') return dataFile;
-      return '';
-    });
-
-    mockGlob.mockResolvedValue([
-      'src/test/scala/com/example/Test1.scala',
-      'src/test/scala/com/example/Test2.scala',
-      'src/test/scala/com/example/Test3.scala',
-      'src/test/scala/com/example/Test4.scala',
-      'src/test/scala/com/example/Test5.scala',
-      'src/test/scala/com/example/Test6.scala',
-      'src/test/scala/com/example/Test7.scala',
-      'src/test/scala/com/example/Test8.scala',
-      'src/test/scala/com/example/Test9.scala',
-      'src/test/scala/com/example/Test10.scala',
-      'src/test/scala/com/example/Test11.scala',
-    ]);
-
-    await run();
-
-    expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('Auto-shard mode: calculated')
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('estimated total time'));
-  });
-
   it('should calculate 1 shard for 5 or fewer files', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return true;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -1472,7 +714,6 @@ describe('run', () => {
   it('should calculate multiple shards for many files', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
       if (key === 'auto-shard') return true;
-      if (key === 'use-historical-data') return false;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -1514,194 +755,6 @@ describe('calculateOptimalShards', () => {
     expect(calculateOptimalShards(15)).toBe(3);
   });
 
-  it('should increase shards when historical data shows estimated total time > 600s', () => {
-    const historicalData = {
-      'src/test/scala/com/example/Test1.scala': 100,
-      'src/test/scala/com/example/Test2.scala': 100,
-      'src/test/scala/com/example/Test3.scala': 100,
-    };
-    // With 3 files averaging 100s each, 20 files would be ~667s total
-    expect(calculateOptimalShards(20, historicalData)).toBeGreaterThan(calculateOptimalShards(20));
-  });
-
-  it('should increase shards when historical data shows estimated total time > 300s but <= 600s', () => {
-    const historicalData = {
-      'src/test/scala/com/example/Test1.scala': 50,
-      'src/test/scala/com/example/Test2.scala': 50,
-      'src/test/scala/com/example/Test3.scala': 50,
-    };
-    // With 3 files averaging 50s each, 10 files would be ~500s total
-    expect(calculateOptimalShards(10, historicalData)).toBeGreaterThanOrEqual(
-      calculateOptimalShards(10)
-    );
-  });
-
-  it('should detect and add shards for slow individual test files', () => {
-    const historicalData = {
-      'src/test/scala/com/example/SlowTest.scala': 350,
-      'src/test/scala/com/example/FastTest.scala': 10,
-    };
-    // Slow test file (350s) exceeds 300s threshold, should add shards to isolate
-    const shards = calculateOptimalShards(5, historicalData);
-    expect(shards).toBeGreaterThan(1);
-  });
-
-  it('should warn when shard time exceeds threshold in shardByComplexity (manual mode)', () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const testFile1 = join(testDir, 'Test1.scala');
-    const testFile2 = join(testDir, 'Test2.scala');
-    const testFile3 = join(testDir, 'Test3.scala');
-    writeFileSync(testFile1, 'test("test1") {}');
-    writeFileSync(testFile2, 'test("test2") {}');
-    writeFileSync(testFile3, 'test("test3") {}');
-
-    // Use values that will result in a shard > 300s when balanced
-    // With bin-packing: Test1 (350s) -> Shard1, Test2 (200s) -> Shard2, Test3 (10s) -> Shard1
-    // Result: Shard1 = 360s, Shard2 = 200s (max = 360s > 300s threshold)
-    const historicalData = {
-      [testFile1]: 350,
-      [testFile2]: 200,
-      [testFile3]: 10,
-    };
-    const testFiles = Object.keys(historicalData);
-    mockCore.warning.mockClear();
-    const shards = shardByComplexity(testFiles, 2, historicalData, false);
-    expect(shards.length).toBe(2);
-    // Check that warning was called for slow shard with manual mode recommendation
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Shard optimization needed')
-    );
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Increase max-shards to')
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Slowest test files'));
-  });
-
-  it('should warn when shard time exceeds threshold in shardByComplexity (auto-shard mode)', () => {
-    const testDir = join(process.cwd(), 'test-temp');
-    try {
-      mkdirSync(testDir, { recursive: true });
-    } catch {
-      // Directory might already exist
-    }
-
-    const testFile1 = join(testDir, 'Test1.scala');
-    const testFile2 = join(testDir, 'Test2.scala');
-    const testFile3 = join(testDir, 'Test3.scala');
-    writeFileSync(testFile1, 'test("test1") {}');
-    writeFileSync(testFile2, 'test("test2") {}');
-    writeFileSync(testFile3, 'test("test3") {}');
-
-    const historicalData = {
-      [testFile1]: 350,
-      [testFile2]: 200,
-      [testFile3]: 10,
-    };
-    const testFiles = Object.keys(historicalData);
-    mockCore.warning.mockClear();
-    const shards = shardByComplexity(testFiles, 2, historicalData, true);
-    expect(shards.length).toBe(2);
-    // Check that warning was called for slow shard with auto-shard mode recommendation
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Shard optimization needed')
-    );
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Switch to manual sharding with max-shards')
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Slowest test files'));
-  });
-
-  it('should warn when shard time exceeds threshold in shardByTestFileCount (manual mode)', () => {
-    // Use values that will result in a shard > 300s when balanced
-    // With bin-packing: Test1 (350s) -> Shard1, Test2 (200s) -> Shard2, Test3 (10s) -> Shard1
-    // Result: Shard1 = 360s, Shard2 = 200s (max = 360s > 300s threshold)
-    const historicalData = {
-      'src/test/scala/com/example/Test1.scala': 350,
-      'src/test/scala/com/example/Test2.scala': 200,
-      'src/test/scala/com/example/Test3.scala': 10,
-    };
-    const testFiles = Object.keys(historicalData);
-    mockCore.warning.mockClear();
-    const shards = shardByTestFileCount(testFiles, 2, historicalData, false);
-    expect(shards.length).toBe(2);
-    // Check that warning was called for slow shard with manual mode recommendation
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Shard optimization needed')
-    );
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Increase max-shards to')
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Slowest test files'));
-  });
-
-  it('should warn when shard time exceeds threshold in shardByTestFileCount (auto-shard mode)', () => {
-    const historicalData = {
-      'src/test/scala/com/example/Test1.scala': 350,
-      'src/test/scala/com/example/Test2.scala': 200,
-      'src/test/scala/com/example/Test3.scala': 10,
-    };
-    const testFiles = Object.keys(historicalData);
-    mockCore.warning.mockClear();
-    const shards = shardByTestFileCount(testFiles, 2, historicalData, true);
-    expect(shards.length).toBe(2);
-    // Check that warning was called for slow shard with auto-shard mode recommendation
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Shard optimization needed')
-    );
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Switch to manual sharding with max-shards')
-    );
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Slowest test files'));
-  });
-
-  it('should not warn when all shards are under threshold', () => {
-    const historicalData = {
-      'src/test/scala/com/example/Test1.scala': 100,
-      'src/test/scala/com/example/Test2.scala': 100,
-      'src/test/scala/com/example/Test3.scala': 50,
-    };
-    const testFiles = Object.keys(historicalData);
-    mockCore.warning.mockClear();
-    shardByComplexity(testFiles, 2, historicalData);
-    // Should not warn when all shards are under 300s (max would be 100+100=200s)
-    expect(mockCore.warning).not.toHaveBeenCalledWith(
-      expect.stringContaining('Shard optimization needed')
-    );
-  });
-
-  it('should handle slow tests with undefined historical data values', () => {
-    const historicalData: Record<string, number> = {
-      'src/test/scala/com/example/Test1.scala': 350,
-      'src/test/scala/com/example/Test2.scala': 200,
-    };
-    const testFiles = [
-      'src/test/scala/com/example/Test1.scala',
-      'src/test/scala/com/example/Test2.scala',
-      'src/test/scala/com/example/Test3.scala',
-    ];
-    mockCore.warning.mockClear();
-    const shards = shardByComplexity(testFiles, 2, historicalData);
-    expect(shards.length).toBe(2);
-    if (mockCore.warning.mock.calls.length > 0) {
-      expect(mockCore.warning).toHaveBeenCalledWith(
-        expect.stringContaining('Shard optimization needed')
-      );
-    }
-  });
-
-  it('should calculate shards for 6-20 files', () => {
-    expect(calculateOptimalShards(6)).toBe(2);
-    expect(calculateOptimalShards(10)).toBe(2);
-    expect(calculateOptimalShards(15)).toBe(3);
-    expect(calculateOptimalShards(20)).toBe(4);
-  });
-
   it('should cap at 10 shards for many files', () => {
     expect(calculateOptimalShards(100)).toBe(10);
     expect(calculateOptimalShards(200)).toBe(10);
@@ -1711,6 +764,39 @@ describe('calculateOptimalShards', () => {
     expect(calculateOptimalShards(21)).toBe(3);
     expect(calculateOptimalShards(50)).toBe(5);
     expect(calculateOptimalShards(99)).toBe(10);
+  });
+});
+
+describe('shardByComplexity', () => {
+  const testDir = join(process.cwd(), 'test-temp');
+
+  beforeEach(() => {
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+  });
+
+  it('should distribute files by complexity', () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const testFile1 = join(testDir, 'Test1.scala');
+    const testFile2 = join(testDir, 'Test2.scala');
+    const testFile3 = join(testDir, 'Test3.scala');
+    writeFileSync(testFile1, 'test("test1") {}');
+    writeFileSync(testFile2, 'test("test2") {}');
+    writeFileSync(testFile3, 'test("test3") {}');
+
+    const testFiles = [testFile1, testFile2, testFile3];
+    const shards = shardByComplexity(testFiles, 2);
+    expect(shards.length).toBe(2);
+    expect(shards[0].length + shards[1].length).toBe(3);
   });
 });
 
@@ -1891,23 +977,4 @@ describe('shardByComplexity', () => {
     expect(complexShard).toBeDefined();
   });
 
-  it('should use historical data when provided', () => {
-    const slowFile = join(testDir, 'SlowTest.scala');
-    const fastFile = join(testDir, 'FastTest.scala');
-    writeFileSync(slowFile, 'class SlowTest');
-    writeFileSync(fastFile, 'class FastTest');
-
-    const historicalData = {
-      [slowFile]: 200,
-      [fastFile]: 5,
-    };
-
-    const result = shardByComplexity([slowFile, fastFile], 2, historicalData);
-
-    expect(result).toHaveLength(2);
-    expect(result[0].length + result[1].length).toBe(2);
-    const allFiles = [...result[0], ...result[1]];
-    expect(allFiles).toContain(slowFile);
-    expect(allFiles).toContain(fastFile);
-  });
 });

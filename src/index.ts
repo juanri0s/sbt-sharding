@@ -1,7 +1,7 @@
 import * as core from '@actions/core';
 import { glob } from 'glob';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 export async function discoverTestFiles(testPattern: string): Promise<string[]> {
   const patterns = testPattern.split(',').map((p) => p.trim());
@@ -52,94 +52,6 @@ export function testFileToSbtCommand(testFile: string): string {
 interface TestComplexity {
   file: string;
   score: number;
-}
-
-interface HistoricalData {
-  [testFile: string]: number;
-}
-
-export function loadHistoricalData(dataPath: string): HistoricalData | null {
-  if (!dataPath) {
-    return null;
-  }
-
-  try {
-    const fullPath = dataPath.startsWith('/') ? dataPath : join(process.cwd(), dataPath);
-    if (!existsSync(fullPath)) {
-      core.info(`Historical data file not found: ${dataPath} (will be created after first run)`);
-      return null;
-    }
-
-    const content = readFileSync(fullPath, 'utf-8');
-    const data = JSON.parse(content) as HistoricalData;
-
-    const validEntries = Object.entries(data).filter(
-      ([_, time]) => typeof time === 'number' && time > 0
-    );
-    core.info(`Loaded historical data for ${validEntries.length} test files`);
-    return Object.fromEntries(validEntries);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    core.warning(`Failed to load historical data from ${dataPath}: ${errorMessage}`);
-    return null;
-  }
-}
-
-export function saveHistoricalData(
-  dataPath: string,
-  testFiles: string[],
-  executionTime: number
-): void {
-  if (!dataPath) {
-    return;
-  }
-
-  try {
-    const fullPath = dataPath.startsWith('/') ? dataPath : join(process.cwd(), dataPath);
-    const dir = dirname(fullPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-
-    let existingData: HistoricalData = {};
-    if (existsSync(fullPath)) {
-      try {
-        const content = readFileSync(fullPath, 'utf-8');
-        existingData = JSON.parse(content) as HistoricalData;
-      } catch {
-        existingData = {};
-      }
-    }
-
-    const timePerFile = testFiles.length > 0 ? executionTime / testFiles.length : 0;
-    const updatedData: HistoricalData = { ...existingData };
-
-    for (const file of testFiles) {
-      const existingTime = existingData[file];
-      if (existingTime !== undefined) {
-        updatedData[file] = (existingTime + timePerFile) / 2;
-      } else {
-        updatedData[file] = timePerFile;
-      }
-    }
-
-    writeFileSync(fullPath, JSON.stringify(updatedData, null, 2) + '\n');
-    core.info(`Updated historical data for ${testFiles.length} test file(s) in ${dataPath}`);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    core.warning(`Failed to save historical data to ${dataPath}: ${errorMessage}`);
-  }
-}
-
-export function getTestWeight(
-  testFile: string,
-  historicalData: HistoricalData | null,
-  complexityScore: number
-): number {
-  if (historicalData && historicalData[testFile]) {
-    return historicalData[testFile];
-  }
-  return complexityScore;
 }
 
 export function analyzeTestComplexity(testFile: string): number {
@@ -209,7 +121,6 @@ export function analyzeTestComplexity(testFile: string): number {
 export function shardByComplexity(
   testFiles: string[],
   maxShards: number,
-  historicalData: HistoricalData | null = null,
   isAutoShard: boolean = false
 ): string[][] {
   const totalFiles = testFiles.length;
@@ -219,30 +130,11 @@ export function shardByComplexity(
     return [];
   }
 
-  if (historicalData && Object.keys(historicalData).length > 0) {
-    const filesWithData = testFiles.filter((file) => historicalData[file]);
-    const filesWithoutData = testFiles.filter((file) => !historicalData[file]);
-
-    if (filesWithData.length > 0) {
-      core.info(`\nHistorical execution times:`);
-      filesWithData.forEach((file) => {
-        core.info(`  ${file}: ${historicalData[file]}s`);
-      });
-    }
-
-    if (filesWithoutData.length > 0) {
-      core.info(
-        `\n${filesWithoutData.length} test file(s) have no historical data, using complexity scores for those`
-      );
-    }
-  }
-
   const weights: TestComplexity[] = testFiles.map((file) => {
     const complexityScore = analyzeTestComplexity(file);
-    const weight = getTestWeight(file, historicalData, complexityScore);
     return {
       file,
-      score: weight,
+      score: complexityScore,
     };
   });
 
@@ -266,82 +158,16 @@ export function shardByComplexity(
     shardScores[minScoreIndex] += test.score;
   }
 
-  if (historicalData && Object.keys(historicalData).length > 0) {
-    const filesWithData = testFiles.filter((file) => historicalData[file]);
-    const hasAnyData = filesWithData.length > 0;
-
-    if (hasAnyData) {
-      const MAX_SHARD_TIME = 300;
-      const shardTimes = shards.map((shardFiles) => {
-        let totalTime = 0;
-        for (const file of shardFiles) {
-          const time = historicalData![file];
-          if (time !== undefined) {
-            totalTime += time;
-          }
-        }
-        return totalTime;
-      });
-
-      const maxShardTime = Math.max(...shardTimes);
-      if (maxShardTime > MAX_SHARD_TIME && actualShards < totalFiles) {
-        const recommendedShards = Math.ceil(
-          shardTimes.reduce((sum, time) => sum + time, 0) / MAX_SHARD_TIME
-        );
-        const finalRecommendedShards = Math.min(recommendedShards, totalFiles);
-
-        if (isAutoShard) {
-          core.warning(
-            `\n⚠️  Shard optimization needed: Maximum shard time (${maxShardTime.toFixed(1)}s) exceeds threshold (${MAX_SHARD_TIME}s)`
-          );
-          core.warning(
-            `   Recommendation: Switch to manual sharding with max-shards: ${finalRecommendedShards} (currently using auto-shard with ${actualShards} shards)`
-          );
-        } else {
-          core.warning(
-            `\n⚠️  Shard optimization needed: Maximum shard time (${maxShardTime.toFixed(1)}s) exceeds threshold (${MAX_SHARD_TIME}s)`
-          );
-          core.warning(
-            `   Recommendation: Increase max-shards to ${finalRecommendedShards} or isolate slow test suites. Current shards: ${actualShards}`
-          );
-        }
-
-        const slowTests = testFiles
-          .filter((file) => {
-            const time = historicalData![file];
-            return time !== undefined && time > MAX_SHARD_TIME / 2;
-          })
-          .sort((a, b) => (historicalData![b] || 0) - (historicalData![a] || 0));
-
-        if (slowTests.length > 0) {
-          core.info(`\nSlowest test files (consider isolating):`);
-          slowTests.slice(0, 5).forEach((file) => {
-            core.info(`  ${file}: ${historicalData![file]}s`);
-          });
-        }
-      }
-
-      core.info(`\nShard distribution (balanced by execution time):`);
-      shards.forEach((shardFiles, idx) => {
-        const totalTime = shardTimes[idx];
-        const status = totalTime > MAX_SHARD_TIME ? ' ⚠️  (slow)' : '';
-        core.info(
-          `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total${status}`
-        );
-      });
-    } else {
-      core.info(`\nShard distribution (using complexity scores - no historical data available):`);
-      shards.forEach((shardFiles, idx) => {
-        const totalComplexity = shardFiles.reduce((sum, file) => {
-          const complexityScore = analyzeTestComplexity(file);
-          return sum + complexityScore;
-        }, 0);
-        core.info(
-          `  Shard ${idx + 1}: ${shardFiles.length} file(s), complexity score: ${totalComplexity}`
-        );
-      });
-    }
-  }
+  core.info(`\nShard distribution (using complexity scores):`);
+  shards.forEach((shardFiles, idx) => {
+    const totalComplexity = shardFiles.reduce((sum, file) => {
+      const complexityScore = analyzeTestComplexity(file);
+      return sum + complexityScore;
+    }, 0);
+    core.info(
+      `  Shard ${idx + 1}: ${shardFiles.length} file(s), complexity score: ${totalComplexity}`
+    );
+  });
 
   return shards;
 }
@@ -349,7 +175,6 @@ export function shardByComplexity(
 export function shardByTestFileCount(
   testFiles: string[],
   maxShards: number,
-  historicalData: HistoricalData | null = null,
   isAutoShard: boolean = false
 ): string[][] {
   const totalFiles = testFiles.length;
@@ -357,114 +182,6 @@ export function shardByTestFileCount(
 
   if (totalFiles === 0) {
     return [];
-  }
-
-  if (historicalData && Object.keys(historicalData).length > 0) {
-    const filesWithData = testFiles.filter((file) => historicalData[file]);
-    const filesWithoutData = testFiles.filter((file) => !historicalData[file]);
-    const hasAnyData = filesWithData.length > 0;
-
-    if (filesWithData.length > 0) {
-      core.info(`\nHistorical execution times:`);
-      filesWithData.forEach((file) => {
-        core.info(`  ${file}: ${historicalData[file]}s`);
-      });
-    }
-
-    if (filesWithoutData.length > 0) {
-      core.info(
-        `\n${filesWithoutData.length} test file(s) have no historical data, using default distribution for those`
-      );
-    }
-
-    const weights: TestComplexity[] = testFiles.map((file) => ({
-      file,
-      score: historicalData[file] || 1,
-    }));
-
-    weights.sort((a, b) => b.score - a.score);
-
-    const shards: string[][] = Array.from({ length: actualShards }, () => []);
-    const shardScores: number[] = Array.from({ length: actualShards }, () => 0);
-
-    for (const test of weights) {
-      let minScoreIndex = 0;
-      let minScore = shardScores[0];
-
-      for (let i = 1; i < actualShards; i++) {
-        if (shardScores[i] < minScore) {
-          minScore = shardScores[i];
-          minScoreIndex = i;
-        }
-      }
-
-      shards[minScoreIndex].push(test.file);
-      shardScores[minScoreIndex] += test.score;
-    }
-
-    if (hasAnyData) {
-      const MAX_SHARD_TIME = 300;
-      const shardTimes = shards.map((shardFiles) =>
-        shardFiles.reduce((sum, file) => sum + (historicalData[file] || 0), 0)
-      );
-
-      const maxShardTime = Math.max(...shardTimes);
-      if (maxShardTime > MAX_SHARD_TIME && actualShards < totalFiles) {
-        const recommendedShards = Math.ceil(
-          shardTimes.reduce((sum, time) => sum + time, 0) / MAX_SHARD_TIME
-        );
-        const finalRecommendedShards = Math.min(recommendedShards, totalFiles);
-
-        if (isAutoShard) {
-          core.warning(
-            `\n⚠️  Shard optimization needed: Maximum shard time (${maxShardTime.toFixed(1)}s) exceeds threshold (${MAX_SHARD_TIME}s)`
-          );
-          core.warning(
-            `   Recommendation: Switch to manual sharding with max-shards: ${finalRecommendedShards} (currently using auto-shard with ${actualShards} shards)`
-          );
-        } else {
-          core.warning(
-            `\n⚠️  Shard optimization needed: Maximum shard time (${maxShardTime.toFixed(1)}s) exceeds threshold (${MAX_SHARD_TIME}s)`
-          );
-          core.warning(
-            `   Recommendation: Increase max-shards to ${finalRecommendedShards} or isolate slow test suites. Current shards: ${actualShards}`
-          );
-        }
-
-        const slowTests = testFiles
-          .filter((file) => {
-            const time = historicalData[file];
-            return time !== undefined && time > MAX_SHARD_TIME / 2;
-          })
-          .sort((a, b) => (historicalData[b] || 0) - (historicalData[a] || 0));
-
-        if (slowTests.length > 0) {
-          core.info(`\nSlowest test files (consider isolating):`);
-          slowTests.slice(0, 5).forEach((file) => {
-            core.info(`  ${file}: ${historicalData[file]}s`);
-          });
-        }
-      }
-
-      core.info(`\nShard distribution (balanced by execution time):`);
-      shards.forEach((shardFiles, idx) => {
-        const totalTime = shardTimes[idx];
-        const status = totalTime > MAX_SHARD_TIME ? ' ⚠️  (slow)' : '';
-        core.info(
-          `  Shard ${idx + 1}: ${shardFiles.length} file(s), ~${totalTime.toFixed(1)}s total${status}`
-        );
-      });
-    } else {
-      core.info(
-        `\nShard distribution (using execution time weights - no historical data available):`
-      );
-      shards.forEach((shardFiles, idx) => {
-        const totalWeight = shardFiles.reduce((sum, file) => sum + (historicalData[file] || 1), 0);
-        core.info(`  Shard ${idx + 1}: ${shardFiles.length} file(s), total weight: ${totalWeight}`);
-      });
-    }
-
-    return shards;
   }
 
   const shards: string[][] = Array.from({ length: actualShards }, () => []);
@@ -477,10 +194,7 @@ export function shardByTestFileCount(
   return shards;
 }
 
-export function calculateOptimalShards(
-  testFileCount: number,
-  historicalData: HistoricalData | null = null
-): number {
+export function calculateOptimalShards(testFileCount: number): number {
   if (testFileCount === 0) {
     return 1;
   }
@@ -494,30 +208,6 @@ export function calculateOptimalShards(
     baseShards = Math.ceil(testFileCount / 10);
   }
 
-  if (historicalData && Object.keys(historicalData).length > 0) {
-    const totalExecutionTime = Object.values(historicalData).reduce((sum, time) => sum + time, 0);
-    const avgTimePerFile = totalExecutionTime / Object.keys(historicalData).length;
-    const estimatedTotalTime = avgTimePerFile * testFileCount;
-
-    const MAX_SHARD_TIME = 300;
-    const TARGET_SHARD_TIME = 200;
-
-    if (estimatedTotalTime > 600) {
-      baseShards = Math.max(baseShards, Math.ceil(estimatedTotalTime / MAX_SHARD_TIME));
-    } else if (estimatedTotalTime > 300) {
-      baseShards = Math.max(baseShards, Math.ceil(estimatedTotalTime / TARGET_SHARD_TIME));
-    }
-
-    const maxSingleFileTime = Math.max(...Object.values(historicalData));
-    if (maxSingleFileTime > MAX_SHARD_TIME && baseShards < testFileCount) {
-      const isolatedShardsNeeded = Math.ceil(maxSingleFileTime / MAX_SHARD_TIME);
-      baseShards = Math.max(baseShards, isolatedShardsNeeded);
-      core.info(
-        `Detected slow test file (~${maxSingleFileTime.toFixed(1)}s), adding shards to isolate: ${baseShards} total`
-      );
-    }
-  }
-
   return Math.min(baseShards, 10);
 }
 
@@ -528,27 +218,9 @@ export async function run(): Promise<void> {
     const algorithm = core.getInput('algorithm') || 'test-file-count';
     const testPattern = core.getInput('test-pattern') || '**/*Test.scala,**/*Spec.scala';
     const testEnvVars = core.getInput('test-env-vars') || '';
-    const useHistoricalData = core.getBooleanInput('use-historical-data');
-    const historicalDataPath = core.getInput('historical-data-path') || '';
-
     const shardInput = core.getInput('shard-number');
     const shardEnv = process.env.GITHUB_SHARD;
     const currentShard = parseInt(shardInput || shardEnv || '1', 10);
-
-    let historicalData: HistoricalData | null = null;
-    if (useHistoricalData && historicalDataPath) {
-      historicalData = loadHistoricalData(historicalDataPath);
-      if (historicalData) {
-        const dataCount = Object.keys(historicalData).length;
-        core.info(
-          `Using historical execution time data for ${dataCount} test file(s) to optimize shard distribution`
-        );
-      } else {
-        core.info(
-          `No historical data available, using ${algorithm} algorithm with default distribution`
-        );
-      }
-    }
 
     core.info(`Discovering test files with pattern: ${testPattern}`);
     const testFiles = await discoverTestFiles(testPattern);
@@ -556,19 +228,10 @@ export async function run(): Promise<void> {
 
     let maxShards: number;
     if (autoShard) {
-      maxShards = calculateOptimalShards(testFiles.length, historicalData);
-      if (historicalData && Object.keys(historicalData).length > 0) {
-        const totalTime = Object.values(historicalData).reduce((sum, time) => sum + time, 0);
-        const avgTime = totalTime / Object.keys(historicalData).length;
-        const estimatedTotal = avgTime * testFiles.length;
-        core.info(
-          `Auto-shard mode: calculated ${maxShards} shard(s) for ${testFiles.length} test files (estimated total time: ${estimatedTotal.toFixed(1)}s based on historical data)`
-        );
-      } else {
-        core.info(
-          `Auto-shard mode: calculated ${maxShards} shard(s) for ${testFiles.length} test files`
-        );
-      }
+      maxShards = calculateOptimalShards(testFiles.length);
+      core.info(
+        `Auto-shard mode: calculated ${maxShards} shard(s) for ${testFiles.length} test files`
+      );
     } else {
       maxShards = parseInt(maxShardsInput, 10);
       if (isNaN(maxShards) || maxShards < 1) {
@@ -576,11 +239,7 @@ export async function run(): Promise<void> {
       }
     }
 
-    if (!historicalData || Object.keys(historicalData).length === 0) {
-      core.info(`Using ${algorithm} algorithm to distribute tests across ${maxShards} shard(s)`);
-    } else {
-      core.info(`Distributing tests across ${maxShards} shard(s) using historical execution times`);
-    }
+    core.info(`Using ${algorithm} algorithm to distribute tests across ${maxShards} shard(s)`);
 
     if (testFiles.length === 0) {
       core.warning('No test files found. This may indicate a misconfigured test-pattern.');
@@ -595,10 +254,10 @@ export async function run(): Promise<void> {
     let shards: string[][];
     switch (algorithm) {
       case 'test-file-count':
-        shards = shardByTestFileCount(testFiles, maxShards, historicalData, autoShard);
+        shards = shardByTestFileCount(testFiles, maxShards, autoShard);
         break;
       case 'complexity':
-        shards = shardByComplexity(testFiles, maxShards, historicalData, autoShard);
+        shards = shardByComplexity(testFiles, maxShards, autoShard);
         break;
       default:
         throw new Error(`Unknown algorithm: ${algorithm}`);
@@ -609,48 +268,13 @@ export async function run(): Promise<void> {
     const currentShardFiles = shards[shardIndex] || [];
 
     core.info(`Total shards: ${totalShards}`);
-
-    if (!historicalData || Object.keys(historicalData).length === 0) {
-      core.info(`\nShard distribution:`);
-      shards.forEach((shardFiles, idx) => {
-        core.info(`  Shard ${idx + 1}: ${shardFiles.length} test file(s)`);
-        shardFiles.forEach((file) => {
-          core.info(`    - ${file}`);
-        });
+    core.info(`\nShard distribution:`);
+    shards.forEach((shardFiles, idx) => {
+      core.info(`  Shard ${idx + 1}: ${shardFiles.length} test file(s)`);
+      shardFiles.forEach((file) => {
+        core.info(`    - ${file}`);
       });
-    } else {
-      const filesWithData = testFiles.filter((file) => historicalData![file]);
-      const hasAnyData = filesWithData.length > 0;
-
-      core.info(`\nShard distribution:`);
-      shards.forEach((shardFiles, idx) => {
-        if (hasAnyData) {
-          const totalTime = shardFiles.reduce((sum, file) => sum + (historicalData![file] || 0), 0);
-          core.info(
-            `  Shard ${idx + 1}: ${shardFiles.length} test file(s), ~${totalTime.toFixed(1)}s total`
-          );
-          shardFiles.forEach((file) => {
-            const time = historicalData![file];
-            if (time) {
-              core.info(`    - ${file} (${time}s)`);
-            } else {
-              core.info(`    - ${file} (no historical data, weight: 1)`);
-            }
-          });
-        } else {
-          const totalWeight = shardFiles.reduce(
-            (sum, file) => sum + (historicalData![file] || 1),
-            0
-          );
-          core.info(
-            `  Shard ${idx + 1}: ${shardFiles.length} test file(s), total weight: ${totalWeight}`
-          );
-          shardFiles.forEach((file) => {
-            core.info(`    - ${file} (no historical data, weight: 1)`);
-          });
-        }
-      });
-    }
+    });
 
     core.info(`\nCurrent shard: ${currentShard} (0-indexed: ${shardIndex})`);
     core.info(`Test files in this shard: ${currentShardFiles.length}`);
@@ -687,19 +311,6 @@ export async function run(): Promise<void> {
 
     core.exportVariable('SBT_TEST_FILES', currentShardFiles.join(','));
     core.exportVariable('SBT_TEST_COMMANDS', testCommands.join(' '));
-
-    if (useHistoricalData && historicalDataPath) {
-      const executionTimeInput = core.getInput('execution-time');
-      if (executionTimeInput) {
-        const executionTime = parseFloat(executionTimeInput);
-        if (!isNaN(executionTime) && executionTime > 0) {
-          saveHistoricalData(historicalDataPath, currentShardFiles, executionTime);
-          core.info(
-            `Saved execution time: ${executionTime}s for ${currentShardFiles.length} test file(s)`
-          );
-        }
-      }
-    }
 
     if (currentShardFiles.length > 0) {
       core.info(`\nCommand: sbt ${finalCommands}`);

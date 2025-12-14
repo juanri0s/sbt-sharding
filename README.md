@@ -190,118 +190,19 @@ Distributes tests based on estimated complexity to balance execution time across
 
 Tests are sorted by complexity (highest first) and distributed using a bin-packing algorithm to balance total complexity across shards.
 
-### Historical Data (Memory-Based Improvement)
-
-Automatically learns from past test runs to optimize shard distribution. Execution times are collected and persisted using GitHub Actions artifacts, improving sharding accuracy over time.
-
-**Setup with Artifacts (Recommended):**
-
-Execution times are automatically collected from the test step via GitHub API. No manual configuration needed:
-
-```yaml
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    steps:
-      - uses: actions/checkout@v4
-
-      # Download historical data from previous runs
-      - name: Download historical data
-        uses: actions/download-artifact@v4
-        with:
-          name: test-times
-          path: .github
-        continue-on-error: true
-
-      # Shard tests using historical data
-      - name: Shard Tests
-        id: shard
-        uses: ./
-        with:
-          max-shards: 4
-          algorithm: complexity
-          use-historical-data: true
-          historical-data-path: '.github/test-times.json'
-          shard-number: ${{ matrix.shard }}
-
-      # Run tests and track execution time
-      - name: Run Tests
-        id: test-run
-        run: |
-          START_TIME=$(date +%s)
-          sbt ${{ steps.shard.outputs.test-commands }}
-          END_TIME=$(date +%s)
-          EXECUTION_TIME=$((END_TIME - START_TIME))
-          echo "execution_time=$EXECUTION_TIME" >> $GITHUB_OUTPUT
-
-      # Save historical data with tracked execution time
-      - name: Save historical data
-        uses: ./
-        with:
-          use-historical-data: true
-          historical-data-path: '.github/test-times.json'
-          execution-time: ${{ steps.test-run.outputs.execution_time }}
-          algorithm: complexity
-          test-pattern: '**/*Test.scala,**/*Spec.scala'
-          shard-number: ${{ matrix.shard }}
-
-      # Upload shard-specific historical data
-      - name: Upload shard historical data
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-times-shard-${{ matrix.shard }}
-          path: .github/test-times.json
-          retention-days: 90
-
-  merge-historical-data:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      # Download all shard artifacts and merge them
-      - name: Download and merge shard artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: test-times-shard-*
-          merge-multiple: true
-          path: .github
-
-      # Upload merged historical data
-      - name: Upload merged historical data
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-times
-          path: .github/test-times.json
-          retention-days: 90
-```
 
 **How it works:**
 
-- **First run**: No artifact exists, uses complexity/round-robin algorithm
-- **Track execution time**: Use `date` command or `time` utility to track how long tests take
-- **Save per shard**: Each shard saves its execution time to the historical data file
-- **Merge shards**: After all shards complete, merge all shard-specific files into one artifact
-- **Data is saved**: Execution times are averaged with existing data for the same test files
-- **Next run**: Downloads merged artifact, loads historical data, and uses it to optimize shard distribution
-- **Continuous improvement**: Each run updates the data automatically, improving accuracy over time
-- **Balanced shards**: Over time, shards become balanced as slower tests are identified and distributed evenly
+1. **Download artifact** (you): Try to download historical data artifact from previous runs. If nothing exists, that's fine - first run.
+2. **Shard tests** (action): The action reads historical data if it exists and optimizes where tests get placed across shards. If no data exists, falls back to complexity/round-robin algorithm.
+3. **Run tests** (you): Execute tests and track execution time using `date` command or `time` utility.
+4. **Save data** (you): Read `steps.shard.outputs.test-files`, divide execution time across files, update the JSON file, and write it. The example above shows how to do this with shell scripts and `jq`.
+5. **Upload artifact** (you): Upload shard-specific historical data as artifacts.
+6. **Merge artifacts** (you): After all shards complete, download all shard artifacts and merge their JSON contents, then upload the merged artifact for the next run.
 
-**Data format:**
+**Next run:** Repeats the cycle, but step 1 will have data, so step 2 (sharding) will optimize test placement based on historical execution times.
 
-```json
-{
-  "src/test/scala/com/example/Test1.scala": 45.2,
-  "src/test/scala/com/example/Test2.scala": 12.8,
-  "src/test/scala/com/example/IntegrationTest.scala": 120.5
-}
-```
-
-Times are in seconds. The algorithm balances total execution time across shards. Execution times are averaged when multiple runs exist for the same test file.
+**Important:** The action's primary role is step 2 - reading historical data and optimizing shard distribution. All tracking, saving, merging, and artifact management is handled by your workflow.
 
 **Alternative: Commit to Repository**
 

@@ -28,7 +28,7 @@
   "dependencies": {
     "@actions/core": "^1.11.0",
     "@actions/github": "^6.0.0",
-    "glob": "^10.3.0"
+    "glob": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

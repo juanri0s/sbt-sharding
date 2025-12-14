@@ -182,7 +182,8 @@ jobs:
           }
           EOF
       - name: Upload historical data artifact
-        uses: actions/upload-artifact@v4
+        # https://github.com/actions/upload-artifact/releases/tag/v6.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: test-times
           path: .github/test-times.json

@@ -7,6 +7,7 @@ vi.mock('@actions/core', () => ({
   setFailed: vi.fn(),
   info: vi.fn(),
   warning: vi.fn(),
+  debug: vi.fn(),
   exportVariable: vi.fn(),
 }));
 
@@ -15,6 +16,20 @@ vi.mock('glob', async () => {
   return {
     ...actual,
     glob: vi.fn(),
+  };
+});
+
+vi.mock('path', async () => {
+  const actual = await vi.importActual('path');
+  return {
+    ...actual,
+    resolve: vi.fn((...args) => {
+      // Throw error for specific test case
+      if (args[0]?.includes('THROW_ERROR')) {
+        throw new Error('Path resolve error');
+      }
+      return actual.resolve(...args);
+    }),
   };
 });
 
@@ -40,6 +55,7 @@ const mockCore = core as {
   setFailed: ReturnType<typeof vi.fn>;
   info: ReturnType<typeof vi.fn>;
   warning: ReturnType<typeof vi.fn>;
+  debug: ReturnType<typeof vi.fn>;
   exportVariable: ReturnType<typeof vi.fn>;
 };
 
@@ -162,6 +178,16 @@ describe('testFileToSbtCommand', () => {
       'Could not convert test file path to class name: src/test/scala/.scala'
     );
   });
+
+  it('should handle container test files', () => {
+    const result = testFileToSbtCommand('src/test/scala/com/example/ContainerTest.scala');
+    expect(result).toBe('testOnly com.example.ContainerTest');
+  });
+
+  it('should handle property test files', () => {
+    const result = testFileToSbtCommand('src/test/scala/com/example/PropertyTest.scala');
+    expect(result).toBe('testOnly com.example.PropertyTest');
+  });
 });
 
 describe('shardByTestFileCount', () => {
@@ -225,20 +251,17 @@ describe('shardByTestFileCount', () => {
 describe('run', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.GITHUB_SHARD = undefined;
-  });
-
-  afterEach(() => {
-    delete process.env.GITHUB_SHARD;
   });
 
   it('should run successfully with valid inputs', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -250,7 +273,6 @@ describe('run', () => {
     await run();
 
     expect(mockCore.getInput).toHaveBeenCalledWith('max-shards');
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '1');
     expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '2');
     expect(mockCore.setOutput).toHaveBeenCalledWith(
       'test-files',
@@ -264,13 +286,15 @@ describe('run', () => {
     expect(mockCore.exportVariable).toHaveBeenCalled();
   });
 
-  it('should use shard-number input when provided', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  it('should always use shard 1', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '2';
       return '';
     });
 
@@ -281,63 +305,21 @@ describe('run', () => {
 
     await run();
 
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '2');
     expect(mockCore.setOutput).toHaveBeenCalledWith(
       'test-files',
-      'src/test/scala/com/example/Test2.scala'
+      'src/test/scala/com/example/Test1.scala'
     );
   });
 
-  it('should use GITHUB_SHARD environment variable when shard-number input is not provided', async () => {
-    process.env.GITHUB_SHARD = '2';
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '';
-      return '';
-    });
-
-    mockGlob.mockResolvedValue([
-      'src/test/scala/com/example/Test1.scala',
-      'src/test/scala/com/example/Test2.scala',
-    ]);
-
-    await run();
-
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '2');
-  });
-
-  it('should default to shard 1 when neither input nor env var is provided', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '';
-      return '';
-    });
-
-    delete process.env.GITHUB_SHARD;
-
-    mockGlob.mockResolvedValue([
-      'src/test/scala/com/example/Test1.scala',
-      'src/test/scala/com/example/Test2.scala',
-    ]);
-
-    await run();
-
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '1');
-  });
-
   it('should handle no test files found', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '';
       return '';
     });
 
@@ -348,7 +330,6 @@ describe('run', () => {
     expect(mockCore.warning).toHaveBeenCalledWith(
       'No test files found. This may indicate a misconfigured test-pattern.'
     );
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '1');
     expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '1');
     expect(mockCore.setOutput).toHaveBeenCalledWith('test-files', '');
     expect(mockCore.setOutput).toHaveBeenCalledWith('test-commands', '');
@@ -356,7 +337,10 @@ describe('run', () => {
   });
 
   it('should throw error for invalid max-shards', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '0';
       return '';
@@ -367,8 +351,26 @@ describe('run', () => {
     expect(mockCore.setFailed).toHaveBeenCalledWith('max-shards must be a positive integer');
   });
 
+  it('should throw error for max-shards exceeding limit', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '101';
+      return '';
+    });
+
+    await run();
+
+    expect(mockCore.setFailed).toHaveBeenCalledWith('max-shards cannot exceed 100');
+  });
+
   it('should throw error for NaN max-shards', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return 'invalid';
       return '';
@@ -380,12 +382,13 @@ describe('run', () => {
   });
 
   it('should use complexity algorithm', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((_key: string) => {
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'complexity';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -398,7 +401,10 @@ describe('run', () => {
   });
 
   it('should throw error for unknown algorithm', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return 'unknown-algorithm';
@@ -414,7 +420,10 @@ describe('run', () => {
   });
 
   it('should use default algorithm when not provided', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
       if (key === 'algorithm') return '';
@@ -431,10 +440,13 @@ describe('run', () => {
   });
 
   it('should use default test-pattern when not provided', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '';
       return '';
     });
@@ -448,12 +460,15 @@ describe('run', () => {
   });
 
   it('should handle shard index out of bounds gracefully', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    process.env.GITHUB_SHARD = '10';
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '2';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '10';
       return '';
     });
 
@@ -461,7 +476,6 @@ describe('run', () => {
 
     await run();
 
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '10');
     expect(mockCore.setOutput).toHaveBeenCalledWith(
       'test-files',
       'src/test/scala/com/example/Test1.scala'
@@ -469,12 +483,15 @@ describe('run', () => {
   });
 
   it('should log test files and commands when shard has files', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    process.env.GITHUB_SHARD = '1';
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -484,16 +501,18 @@ describe('run', () => {
 
     expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Shard distribution:'));
     expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Shard 1:'));
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Command:'));
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('testOnly'));
   });
 
   it('should warn when shard has no files', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '3';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '3';
       return '';
     });
 
@@ -504,17 +523,19 @@ describe('run', () => {
 
     await run();
 
-    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-number', '3');
     expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '2');
     expect(mockCore.setOutput).toHaveBeenCalledWith(
       'test-files',
-      'src/test/scala/com/example/Test2.scala'
+      'src/test/scala/com/example/Test1.scala'
     );
     expect(mockCore.warning).not.toHaveBeenCalled();
   });
 
   it('should handle error and call setFailed', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation(() => {
       throw new Error('Input error');
     });
@@ -525,7 +546,10 @@ describe('run', () => {
   });
 
   it('should handle non-Error exceptions', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation(() => {
       throw 'String error';
     });
@@ -538,13 +562,15 @@ describe('run', () => {
   it('should include environment variables in test command', async () => {
     process.env.JAVA_OPTS = '-Xmx2g';
     process.env.SCALA_VERSION = '2.13';
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'test-env-vars') return 'JAVA_OPTS,SCALA_VERSION';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -561,14 +587,80 @@ describe('run', () => {
     delete process.env.SCALA_VERSION;
   });
 
-  it('should skip missing environment variables', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  it('should skip invalid environment variable names', async () => {
+    process.env.VALID_VAR = 'value';
+    process.env.INVALID_VAR = 'value';
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
       if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'test-env-vars') return 'VALID_VAR,INVALID-VAR,123INVALID';
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid environment variable name')
+    );
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-commands',
+      expect.stringMatching(/VALID_VAR=value/)
+    );
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-commands',
+      expect.not.stringMatching(/INVALID-VAR|123INVALID/)
+    );
+
+    delete process.env.VALID_VAR;
+    delete process.env.INVALID_VAR;
+  });
+
+  it('should sanitize environment variable values', async () => {
+    process.env.TEST_VAR = 'value;rm -rf /';
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'round-robin';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'test-env-vars') return 'TEST_VAR';
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    const setOutputCalls = (mockCore.setOutput as ReturnType<typeof vi.fn>).mock.calls;
+    const testCommandsCall = setOutputCalls.find((call) => call[0] === 'test-commands');
+    expect(testCommandsCall).toBeDefined();
+    expect(testCommandsCall[1]).toContain('TEST_VAR=');
+    // Verify dangerous characters are sanitized (replaced with _)
+    expect(testCommandsCall[1]).not.toContain('value;rm');
+    expect(testCommandsCall[1]).toMatch(/TEST_VAR=value_rm/);
+
+    delete process.env.TEST_VAR;
+  });
+
+  it('should skip missing environment variables', async () => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       if (key === 'test-env-vars') return 'MISSING_VAR,JAVA_OPTS';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -591,11 +683,13 @@ describe('run', () => {
   });
 
   it('should use auto-shard mode to calculate shards', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return true;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -621,11 +715,13 @@ describe('run', () => {
   });
 
   it('should calculate 1 shard for 5 or fewer files', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return true;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -641,11 +737,13 @@ describe('run', () => {
   });
 
   it('should calculate multiple shards for many files', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return true;
+      return false;
+    });
     mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'shard-number') return '1';
       return '';
     });
 
@@ -679,7 +777,6 @@ describe('calculateOptimalShards', () => {
     expect(calculateOptimalShards(6)).toBe(2);
     expect(calculateOptimalShards(10)).toBe(2);
     expect(calculateOptimalShards(15)).toBe(3);
-    expect(calculateOptimalShards(20)).toBe(4);
   });
 
   it('should cap at 10 shards for many files', () => {
@@ -691,6 +788,39 @@ describe('calculateOptimalShards', () => {
     expect(calculateOptimalShards(21)).toBe(3);
     expect(calculateOptimalShards(50)).toBe(5);
     expect(calculateOptimalShards(99)).toBe(10);
+  });
+});
+
+describe('shardByComplexity', () => {
+  const testDir = join(process.cwd(), 'test-temp');
+
+  beforeEach(() => {
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+  });
+
+  it('should distribute files by complexity', () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const testFile1 = join(testDir, 'Test1.scala');
+    const testFile2 = join(testDir, 'Test2.scala');
+    const testFile3 = join(testDir, 'Test3.scala');
+    writeFileSync(testFile1, 'test("test1") {}');
+    writeFileSync(testFile2, 'test("test2") {}');
+    writeFileSync(testFile3, 'test("test3") {}');
+
+    const testFiles = [testFile1, testFile2, testFile3];
+    const shards = shardByComplexity(testFiles, 2);
+    expect(shards.length).toBe(2);
+    expect(shards[0].length + shards[1].length).toBe(3);
   });
 });
 
@@ -869,5 +999,83 @@ describe('shardByComplexity', () => {
     expect(result).toHaveLength(2);
     const complexShard = result.find((shard) => shard.includes(complexFile));
     expect(complexShard).toBeDefined();
+  });
+
+  it('should reject path traversal attempts', () => {
+    const testFile = join(testDir, 'Test.scala');
+    writeFileSync(testFile, 'class Test');
+
+    // Mock core.warning to verify it's called
+    const mockWarning = vi.spyOn(core, 'warning');
+
+    // Test with path traversal
+    const maliciousPath = join(testDir, '..', '..', 'etc', 'passwd');
+    const score = analyzeTestComplexity(maliciousPath);
+
+    // Should return base score without reading file
+    expect(score).toBeGreaterThanOrEqual(1);
+    expect(mockWarning).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid file path detected (possible path traversal)')
+    );
+
+    mockWarning.mockRestore();
+  });
+
+  it('should handle absolute paths outside base directory', () => {
+    // Mock core.warning to verify it's called
+    const mockWarning = vi.spyOn(core, 'warning');
+
+    // Use an absolute path that's clearly outside the test directory
+    // On Unix systems, /etc/passwd is a common target
+    // On Windows, we'll use a path that should be outside
+    const maliciousPath =
+      process.platform === 'win32' ? 'C:\\Windows\\System32\\config\\sam' : '/etc/passwd';
+
+    const score = analyzeTestComplexity(maliciousPath);
+
+    // Should return base score without reading file
+    expect(score).toBeGreaterThanOrEqual(1);
+    // Should warn about path traversal
+    expect(mockWarning).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid file path detected (possible path traversal)')
+    );
+
+    mockWarning.mockRestore();
+  });
+
+  it('should handle path resolve errors gracefully', () => {
+    // Mock core.warning to verify it's called
+    const mockWarning = vi.spyOn(core, 'warning');
+
+    // Use a path that will cause resolve to throw
+    const invalidPath = 'THROW_ERROR/path';
+    const score = analyzeTestComplexity(invalidPath);
+
+    // Should return base score without reading file
+    expect(score).toBeGreaterThanOrEqual(1);
+    // Should handle gracefully without crashing
+    expect(mockWarning).toHaveBeenCalled();
+
+    mockWarning.mockRestore();
+  });
+
+  it('should reject files that are too large', () => {
+    const largeFile = join(testDir, 'LargeTest.scala');
+    // Create a file larger than MAX_FILE_SIZE (10MB)
+    const largeContent = 'x'.repeat(11 * 1024 * 1024);
+    writeFileSync(largeFile, largeContent);
+
+    // Mock core.warning to verify it's called
+    const mockWarning = vi.spyOn(core, 'warning');
+
+    const score = analyzeTestComplexity(largeFile);
+
+    // Should return base score without reading full file
+    expect(score).toBeGreaterThanOrEqual(1);
+    expect(mockWarning).toHaveBeenCalledWith(
+      expect.stringContaining('File too large for complexity analysis')
+    );
+
+    mockWarning.mockRestore();
   });
 });

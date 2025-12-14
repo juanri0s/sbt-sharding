@@ -3,6 +3,21 @@
   "version": "1.0.0",
   "type": "module",
   "description": "GitHub Action for automatically sharding Scala tests",
+  "repository": "https://github.com/juanri0s/sbt-test-sharding",
+  "homepage": "https://github.com/juanri0s/sbt-test-sharding",
+  "bugs": "https://github.com/juanri0s/sbt-test-sharding/issues",
+  "license": "MIT",
+  "author": "juanri0s",
+  "keywords": [
+    "github-action",
+    "scala",
+    "sbt",
+    "test-sharding",
+    "ci"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "main": "dist/index.js",
   "packageManager": "pnpm@10.25.0+sha512.5e82639027af37cf832061bcc6d639c219634488e0f2baebe785028a793de7b525ffcd3f7ff574f5e9860654e098fe852ba8ac5dd5cefe1767d23a020a92f501",
   "scripts": {
@@ -16,15 +31,6 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md,yml,yaml}\"",
     "update": "pnpm update --latest --recursive"
   },
-  "keywords": [
-    "github-action",
-    "scala",
-    "sbt",
-    "test-sharding",
-    "ci"
-  ],
-  "author": "",
-  "license": "MIT",
   "dependencies": {
     "@actions/core": "^1.11.0",
     "@actions/github": "^6.0.0",

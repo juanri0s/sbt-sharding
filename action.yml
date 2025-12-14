@@ -10,22 +10,17 @@ inputs:
     required: false
     default: 'false'
   algorithm:
-    description: 'Sharding algorithm to use (supports: "test-file-count", "complexity")'
+    description: 'Sharding algorithm to use (supports: "round-robin", "complexity")'
     required: false
-    default: 'test-file-count'
+    default: 'round-robin'
   test-pattern:
     description: 'Pattern to match test files (default: **/*Test.scala,**/*Spec.scala)'
     required: false
     default: '**/*Test.scala,**/*Spec.scala'
-  shard-number:
-    description: 'Current shard number (1-indexed). If not provided, will use GITHUB_SHARD env var or default to 1'
-    required: false
   test-env-vars:
     description: 'Comma-separated list of environment variable names to include in test command output (e.g., "JAVA_OPTS,SCALA_VERSION")'
     required: false
 outputs:
-  shard-number:
-    description: 'The current shard number (1-indexed)'
   total-shards:
     description: 'Total number of shards created'
   test-files:

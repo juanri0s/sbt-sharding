@@ -28,8 +28,7 @@ jobs:
         uses: ./
         with:
           max-shards: 4
-          algorithm: test-file-count
-          shard-number: ${{ matrix.shard }}
+          algorithm: round-robin
 
       - name: Run Tests
         run: sbt ${{ steps.shard.outputs.test-commands }}
@@ -56,8 +55,7 @@ jobs:
         uses: ./
         with:
           auto-shard: true
-          algorithm: test-file-count
-          shard-number: 1
+          algorithm: round-robin
 
   test:
     needs: determine-shards
@@ -74,8 +72,7 @@ jobs:
         uses: ./
         with:
           auto-shard: true
-          algorithm: test-file-count
-          shard-number: ${{ matrix.shard }}
+          algorithm: round-robin
       - name: Run Tests
         run: sbt ${{ steps.shard.outputs.test-commands }}
 
@@ -115,8 +112,6 @@ jobs:
     strategy:
       matrix:
         shard: [1, 2, 3, 4, 5]
-    env:
-      GITHUB_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v4
 
@@ -128,7 +123,7 @@ jobs:
         uses: ./
         with:
           max-shards: 5
-          algorithm: test-file-count
+          algorithm: round-robin
           test-pattern: '**/*Test.scala,**/*Spec.scala,**/*Suite.scala'
 
       - name: Run Tests
@@ -136,26 +131,24 @@ jobs:
         env:
           JAVA_OPTS: -Xmx2g
         run: |
-          echo "Running tests in shard ${{ steps.shard.outputs.shard-number }}/${{ steps.shard.outputs.total-shards }}"
+          echo "Running tests in shard ${{ matrix.shard }}/${{ steps.shard.outputs.total-shards }}"
           sbt ${{ steps.shard.outputs.test-commands }}
 ```
 
 ## Inputs
 
-| Input           | Description                                                                                     | Required | Default                         |
-| --------------- | ----------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
-| `max-shards`    | Maximum number of shards to split tests into (ignored if `auto-shard` is true)                  | No       | -                               |
-| `auto-shard`    | Automatically determine the number of shards based on test file count                           | No       | `false`                         |
-| `algorithm`     | Sharding algorithm to use                                                                       | No       | `test-file-count`               |
-| `test-pattern`  | Comma-separated glob patterns for test files                                                    | No       | `**/*Test.scala,**/*Spec.scala` |
-| `shard-number`  | Current shard number (1-indexed). If not provided, uses `GITHUB_SHARD` env var or defaults to 1 | No       | `1` or `GITHUB_SHARD` env var   |
-| `test-env-vars` | Comma-separated list of environment variable names to include in test command output            | No       | -                               |
+| Input           | Description                                                                          | Required | Default                         |
+| --------------- | ------------------------------------------------------------------------------------ | -------- | ------------------------------- |
+| `max-shards`    | Maximum number of shards to split tests into (ignored if `auto-shard` is true)       | No       | -                               |
+| `auto-shard`    | Automatically determine the number of shards based on test file count                | No       | `false`                         |
+| `algorithm`     | Sharding algorithm to use                                                            | No       | `round-robin`                   |
+| `test-pattern`  | Comma-separated glob patterns for test files                                         | No       | `**/*Test.scala,**/*Spec.scala` |
+| `test-env-vars` | Comma-separated list of environment variable names to include in test command output | No       | -                               |
 
 ## Outputs
 
 | Output          | Description                                                                                              |
 | --------------- | -------------------------------------------------------------------------------------------------------- |
-| `shard-number`  | The current shard number (1-indexed)                                                                     |
 | `total-shards`  | Total number of shards created                                                                           |
 | `test-files`    | Comma-separated list of test files to run in this shard                                                  |
 | `test-commands` | SBT commands to run tests for this shard (e.g., `testOnly com.example.Test1 testOnly com.example.Test2`) |
@@ -170,9 +163,9 @@ The action also sets these environment variables for convenience:
 
 ## Sharding Algorithms
 
-### `test-file-count` (Default)
+### `round-robin` (Default)
 
-Distributes test files evenly across shards using round-robin.
+Distributes test files evenly across shards using round-robin distribution.
 
 ### `complexity`
 
@@ -186,20 +179,24 @@ Distributes tests based on estimated complexity to balance execution time across
 - Files with many tests (>20): +2 points, (>10): +1 point
 - Large files (>5000 chars): +1 point
 
-Tests are sorted by complexity (highest first) and distributed using a bin-packing algorithm to balance total complexity across shards.
+Tests are sorted by complexity (highest first) and distributed using a greedy bin-packing algorithm to balance total complexity across shards.
 
 ## Auto-Shard Mode
 
-When `auto-shard: true` is set, the action automatically determines the optimal number of shards based on the test file count:
+When `auto-shard: true` is set, the action automatically determines the optimal number of shards based on test file count:
 
 - **0 files**: 1 shard
 - **1-5 files**: 1 shard
 - **6-20 files**: `ceil(files / 5)` shards
-- **21+ files**: `min(ceil(files / 10), 10)` shards (capped at 10)
+- **21+ files**: `ceil(files / 10)` shards
 
-This eliminates the need to manually specify `max-shards` and adjust it as your test suite grows. The action will calculate the appropriate number of shards and output it in the `total-shards` output.
+The final shard count is capped at 10 shards maximum.
 
-**Note:** GitHub Actions matrices are static and cannot be dynamically generated. You still need to specify a matrix range (e.g., `[1,2,3,4,5,6,7,8,9,10]`), but the action will automatically determine how many shards are actually needed. Use `if: steps.shard.outputs.test-files != ''` to skip empty shards.
+**Example:** If you have 15 test files, auto-shard will calculate 3 shards (15 / 5 = 3).
+
+This eliminates the need to manually specify `max-shards` and adjust it as your test suite grows or slows down. The action will calculate the appropriate number of shards and output it in the `total-shards` output.
+
+**Note:** GitHub Actions matrices are static and cannot be dynamically generated. You need a separate job to determine the matrix using `outputs.shard-matrix`, then use that in your test job's matrix strategy.
 
 ## Requirements
 

@@ -205,13 +205,15 @@ export async function run(): Promise<void> {
     if (autoShard) {
       maxShards = calculateOptimalShards(testFiles.length);
       core.info(
-        `Auto-shard mode: calculated ${maxShards} shards for ${testFiles.length} test files`
+        `Auto-shard mode: calculated ${maxShards} shard(s) for ${testFiles.length} test files`
       );
+      core.info(`Using ${algorithm} algorithm to distribute tests across ${maxShards} shard(s)`);
     } else {
       maxShards = parseInt(maxShardsInput, 10);
       if (isNaN(maxShards) || maxShards < 1) {
         throw new Error('max-shards must be a positive integer');
       }
+      core.info(`Using ${algorithm} algorithm to distribute tests across ${maxShards} shard(s)`);
     }
 
     if (testFiles.length === 0) {

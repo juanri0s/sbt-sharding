@@ -324,28 +324,48 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           pattern: test-times-e2e-shard-*
-          merge-multiple: true
-          path: .github
+          path: .github/shard-artifacts
       - name: Merge historical data from all shards
         run: |
           echo "=== Merging historical data from all shards ==="
           mkdir -p .github
-          # Merge all shard files into one (they should have different test files)
-          # If files overlap, we'll keep the last one (in real usage, they'd be averaged)
-          if [ ! -f .github/test-times-e2e.json ]; then
-            echo "ERROR: No historical data files found after merging shards!"
+          
+          MERGED_FILE=".github/test-times-e2e.json"
+          echo "{}" > "$MERGED_FILE"
+          
+          # Find all JSON files from shard artifacts (handles both single and multiple artifacts)
+          SHARD_COUNT=0
+          for shard_file in .github/shard-artifacts/*/test-times-e2e.json .github/shard-artifacts/test-times-e2e.json; do
+            if [ -f "$shard_file" ]; then
+              SHARD_COUNT=$((SHARD_COUNT + 1))
+              echo "Merging data from: $shard_file"
+              # Merge JSON objects: combine all key-value pairs
+              # If keys overlap, we'll keep the last one (in real usage, they'd be averaged)
+              jq -s 'add' "$MERGED_FILE" "$shard_file" > "$MERGED_FILE.tmp" && mv "$MERGED_FILE.tmp" "$MERGED_FILE"
+            fi
+          done
+          
+          if [ "$SHARD_COUNT" -eq 0 ]; then
+            echo "ERROR: No shard artifacts found!"
             echo "This means execution time detection failed in all shards."
             exit 1
           fi
-          echo "Merged historical data file:"
-          cat .github/test-times-e2e.json
-          echo ""
-          echo "File contains $(jq 'length' .github/test-times-e2e.json) test files"
-          # Verify we have data
-          if [ "$(jq 'length' .github/test-times-e2e.json)" -eq 0 ]; then
-            echo "ERROR: Historical data file is empty!"
+          
+          if [ ! -f "$MERGED_FILE" ] || [ "$(jq 'length' "$MERGED_FILE")" -eq 0 ]; then
+            echo "ERROR: Merge resulted in empty file!"
+            echo "Found $SHARD_COUNT shard(s) but no data to merge."
             exit 1
           fi
+          
+          if [ "$SHARD_COUNT" -eq 1 ]; then
+            echo "Found single shard artifact (no merge needed)"
+          else
+            echo "Successfully merged data from $SHARD_COUNT shard(s)"
+          fi
+          echo "Merged historical data file:"
+          cat "$MERGED_FILE"
+          echo ""
+          echo "File contains $(jq 'length' "$MERGED_FILE") test files"
       - name: Upload merged historical data artifact
         # https://github.com/actions/upload-artifact/releases/tag/v6.0.0
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f

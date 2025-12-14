@@ -16,6 +16,9 @@ inputs:
   shard-number:
     description: 'Current shard number (1-indexed). If not provided, will use GITHUB_SHARD env var or default to 1'
     required: false
+  test-env-vars:
+    description: 'Comma-separated list of environment variable names to include in test command output (e.g., "JAVA_OPTS,SCALA_VERSION")'
+    required: false
 outputs:
   shard-number:
     description: 'The current shard number (1-indexed)'

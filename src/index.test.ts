@@ -440,7 +440,7 @@ describe('run', () => {
     await run();
 
     expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Test files in shard 1:'));
-    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('SBT command:'));
+    expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining('Command:'));
   });
 
   it('should warn when shard has no files', async () => {
@@ -486,5 +486,59 @@ describe('run', () => {
     await run();
 
     expect(mockCore.setFailed).toHaveBeenCalledWith('String error');
+  });
+
+  it('should include environment variables in test command', async () => {
+    process.env.JAVA_OPTS = '-Xmx2g';
+    process.env.SCALA_VERSION = '2.13';
+
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'test-env-vars') return 'JAVA_OPTS,SCALA_VERSION';
+      if (key === 'shard-number') return '1';
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-commands',
+      expect.stringMatching(/JAVA_OPTS=-Xmx2g SCALA_VERSION=2.13 testOnly/)
+    );
+
+    delete process.env.JAVA_OPTS;
+    delete process.env.SCALA_VERSION;
+  });
+
+  it('should skip missing environment variables', async () => {
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'test-env-vars') return 'MISSING_VAR,JAVA_OPTS';
+      if (key === 'shard-number') return '1';
+      return '';
+    });
+
+    process.env.JAVA_OPTS = '-Xmx2g';
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-commands',
+      expect.stringMatching(/JAVA_OPTS=-Xmx2g testOnly/)
+    );
+    expect(mockCore.setOutput).toHaveBeenCalledWith(
+      'test-commands',
+      expect.not.stringMatching(/MISSING_VAR/)
+    );
+
+    delete process.env.JAVA_OPTS;
   });
 });

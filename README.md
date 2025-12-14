@@ -6,7 +6,7 @@ GitHub Action that automatically shards Scala tests for parallel execution in CI
 
 ### Basic Example
 
-```yaml
+````yaml
 name: Test
 
 on: [push, pull_request]
@@ -33,7 +33,29 @@ jobs:
 
       - name: Run Tests
         run: sbt ${{ steps.shard.outputs.test-commands }}
+
+### Environment Variables
+
+Include environment variables in the test command:
+
+```yaml
+- name: Shard Tests
+  id: shard
+  uses: ./
+  with:
+    max-shards: 4
+    test-env-vars: 'JAVA_OPTS,SCALA_VERSION'
+
+- name: Run Tests
+  env:
+    JAVA_OPTS: -Xmx2g
+    SCALA_VERSION: 2.13
+  run: sbt ${{ steps.shard.outputs.test-commands }}
 ```
+
+The `test-commands` output will include the environment variables: `JAVA_OPTS=-Xmx2g SCALA_VERSION=2.13 testOnly com.example.Test1`
+
+````
 
 ### Advanced Example
 
@@ -66,19 +88,22 @@ jobs:
 
       - name: Run Tests
         if: steps.shard.outputs.test-files != ''
+        env:
+          JAVA_OPTS: -Xmx2g
         run: |
           echo "Running tests in shard ${{ steps.shard.outputs.shard-number }}/${{ steps.shard.outputs.total-shards }}"
           sbt ${{ steps.shard.outputs.test-commands }}
-```
+````
 
 ## Inputs
 
-| Input          | Description                                                                                     | Required | Default                         |
-| -------------- | ----------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
-| `max-shards`   | Maximum number of shards to split tests into                                                    | Yes      | -                               |
-| `algorithm`    | Sharding algorithm to use                                                                       | No       | `test-file-count`               |
-| `test-pattern` | Comma-separated glob patterns for test files                                                    | No       | `**/*Test.scala,**/*Spec.scala` |
-| `shard-number` | Current shard number (1-indexed). If not provided, uses `GITHUB_SHARD` env var or defaults to 1 | No       | `1` or `GITHUB_SHARD` env var   |
+| Input                   | Description                                                                                     | Required | Default                         |
+| ----------------------- | ----------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
+| `max-shards`            | Maximum number of shards to split tests into                                                    | Yes      | -                               |
+| `algorithm`             | Sharding algorithm to use                                                                       | No       | `test-file-count`               |
+| `test-pattern`          | Comma-separated glob patterns for test files                                                    | No       | `**/*Test.scala,**/*Spec.scala` |
+| `shard-number`          | Current shard number (1-indexed). If not provided, uses `GITHUB_SHARD` env var or defaults to 1 | No       | `1` or `GITHUB_SHARD` env var   |
+| `test-env-vars` | Comma-separated list of environment variable names to include in test command output | No | - |
 
 ## Outputs
 

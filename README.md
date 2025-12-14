@@ -93,17 +93,17 @@ jobs:
         run: |
           echo "Running tests in shard ${{ steps.shard.outputs.shard-number }}/${{ steps.shard.outputs.total-shards }}"
           sbt ${{ steps.shard.outputs.test-commands }}
-````
+```
 
 ## Inputs
 
-| Input                   | Description                                                                                     | Required | Default                         |
-| ----------------------- | ----------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
-| `max-shards`            | Maximum number of shards to split tests into                                                    | Yes      | -                               |
-| `algorithm`             | Sharding algorithm to use                                                                       | No       | `test-file-count`               |
-| `test-pattern`          | Comma-separated glob patterns for test files                                                    | No       | `**/*Test.scala,**/*Spec.scala` |
-| `shard-number`          | Current shard number (1-indexed). If not provided, uses `GITHUB_SHARD` env var or defaults to 1 | No       | `1` or `GITHUB_SHARD` env var   |
-| `test-env-vars` | Comma-separated list of environment variable names to include in test command output | No | - |
+| Input           | Description                                                                                     | Required | Default                         |
+| --------------- | ----------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
+| `max-shards`    | Maximum number of shards to split tests into                                                    | Yes      | -                               |
+| `algorithm`     | Sharding algorithm to use                                                                       | No       | `test-file-count`               |
+| `test-pattern`  | Comma-separated glob patterns for test files                                                    | No       | `**/*Test.scala,**/*Spec.scala` |
+| `shard-number`  | Current shard number (1-indexed). If not provided, uses `GITHUB_SHARD` env var or defaults to 1 | No       | `1` or `GITHUB_SHARD` env var   |
+| `test-env-vars` | Comma-separated list of environment variable names to include in test command output            | No       | -                               |
 
 ## Outputs
 

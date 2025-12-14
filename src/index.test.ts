@@ -7,6 +7,7 @@ vi.mock('@actions/core', () => ({
   setFailed: vi.fn(),
   info: vi.fn(),
   warning: vi.fn(),
+  debug: vi.fn(),
   exportVariable: vi.fn(),
 }));
 
@@ -51,6 +52,7 @@ const mockCore = core as {
   setFailed: ReturnType<typeof vi.fn>;
   info: ReturnType<typeof vi.fn>;
   warning: ReturnType<typeof vi.fn>;
+  debug: ReturnType<typeof vi.fn>;
   exportVariable: ReturnType<typeof vi.fn>;
 };
 
@@ -1392,6 +1394,564 @@ describe('run', () => {
     if (originalToken) {
       process.env.GITHUB_TOKEN = originalToken;
     }
+  });
+
+  it('should detect step with "run" in name (but not "test") for execution time', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'run-step-times.json');
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const githubModule = await import('@actions/github');
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listJobsForWorkflowRun: vi.fn().mockResolvedValue({
+            data: {
+              jobs: [
+                {
+                  steps: [
+                    {
+                      name: 'Run build',
+                      status: 'completed',
+                      started_at: '2024-01-01T00:00:00Z',
+                      completed_at: '2024-01-01T00:01:30Z',
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+
+    vi.mocked(githubModule.getOctokit).mockReturnValue(mockOctokit as any);
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Automatically collected execution time')
+    );
+    const savedData = JSON.parse(readFileSync(dataFile, 'utf-8'));
+    expect(savedData['src/test/scala/com/example/Test1.scala']).toBe(90);
+
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  it('should detect step with "sbt" in name (but not "test" or "run") for execution time', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'sbt-step-times.json');
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const githubModule = await import('@actions/github');
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listJobsForWorkflowRun: vi.fn().mockResolvedValue({
+            data: {
+              jobs: [
+                {
+                  steps: [
+                    {
+                      name: 'sbt compile',
+                      status: 'completed',
+                      started_at: '2024-01-01T00:00:00Z',
+                      completed_at: '2024-01-01T00:00:45Z',
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+
+    vi.mocked(githubModule.getOctokit).mockReturnValue(mockOctokit as any);
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Automatically collected execution time')
+    );
+    const savedData = JSON.parse(readFileSync(dataFile, 'utf-8'));
+    expect(savedData['src/test/scala/com/example/Test1.scala']).toBe(45);
+
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  it('should return 0 when no completed steps with timing are found', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'no-step-times.json');
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const githubModule = await import('@actions/github');
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listJobsForWorkflowRun: vi.fn().mockResolvedValue({
+            data: {
+              jobs: [
+                {
+                  steps: [
+                    {
+                      name: 'Setup Node',
+                      status: 'in_progress',
+                      started_at: '2024-01-01T00:00:00Z',
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+
+    vi.mocked(githubModule.getOctokit).mockReturnValue(mockOctokit as any);
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Historical data will be loaded from')
+    );
+    expect(mockCore.info).not.toHaveBeenCalledWith(
+      expect.stringContaining('Automatically collected execution time')
+    );
+
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  it('should handle error in getTestStepExecutionTime and log fallback message', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'error-times.json');
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const githubModule = await import('@actions/github');
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listJobsForWorkflowRun: vi.fn().mockRejectedValue(new Error('API error')),
+        },
+      },
+    };
+
+    vi.mocked(githubModule.getOctokit).mockReturnValue(mockOctokit as any);
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.debug).toHaveBeenCalledWith(
+      expect.stringContaining('Could not automatically collect execution time')
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Historical data will be loaded from')
+    );
+
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  it('should handle non-Error exception in getTestStepExecutionTime', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'non-error-exception-times.json');
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const githubModule = await import('@actions/github');
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listJobsForWorkflowRun: vi.fn().mockRejectedValue('String error'),
+        },
+      },
+    };
+
+    vi.mocked(githubModule.getOctokit).mockReturnValue(mockOctokit as any);
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.debug).toHaveBeenCalledWith(
+      expect.stringContaining('Could not automatically collect execution time')
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Historical data will be loaded from')
+    );
+
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  it('should handle execution time of 0 and log fallback message', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'zero-time-times.json');
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const githubModule = await import('@actions/github');
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listJobsForWorkflowRun: vi.fn().mockResolvedValue({
+            data: {
+              jobs: [
+                {
+                  steps: [
+                    {
+                      name: 'Run Tests',
+                      status: 'completed',
+                      started_at: '2024-01-01T00:00:00Z',
+                      completed_at: '2024-01-01T00:00:00Z',
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+
+    vi.mocked(githubModule.getOctokit).mockReturnValue(mockOctokit as any);
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Historical data will be loaded from')
+    );
+    expect(mockCore.info).not.toHaveBeenCalledWith(
+      expect.stringContaining('Automatically collected execution time')
+    );
+
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  it('should handle when jobs.data.jobs is undefined', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'no-jobs-times.json');
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const githubModule = await import('@actions/github');
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listJobsForWorkflowRun: vi.fn().mockResolvedValue({
+            data: {},
+          }),
+        },
+      },
+    };
+
+    vi.mocked(githubModule.getOctokit).mockReturnValue(mockOctokit as any);
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Historical data will be loaded from')
+    );
+
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  it('should fallback to last step when no matching step found', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'fallback-step-times.json');
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const githubModule = await import('@actions/github');
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listJobsForWorkflowRun: vi.fn().mockResolvedValue({
+            data: {
+              jobs: [
+                {
+                  steps: [
+                    {
+                      name: 'Setup',
+                      status: 'completed',
+                      started_at: '2024-01-01T00:00:00Z',
+                      completed_at: '2024-01-01T00:00:30Z',
+                    },
+                    {
+                      name: 'Build',
+                      status: 'completed',
+                      started_at: '2024-01-01T00:00:30Z',
+                      completed_at: '2024-01-01T00:01:00Z',
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+
+    vi.mocked(githubModule.getOctokit).mockReturnValue(mockOctokit as any);
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Automatically collected execution time')
+    );
+    const savedData = JSON.parse(readFileSync(dataFile, 'utf-8'));
+    expect(savedData['src/test/scala/com/example/Test1.scala']).toBe(30);
+
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  it('should handle absolute path in saveHistoricalData', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'absolute-save-times.json');
+    // Use a simple absolute path that definitely starts with /
+    const absolutePath = dataFile.startsWith('/') ? dataFile : '/' + dataFile;
+    writeFileSync(dataFile, JSON.stringify({}));
+
+    process.env.GITHUB_TOKEN = 'test-token';
+
+    const githubModule = await import('@actions/github');
+    const mockOctokit = {
+      rest: {
+        actions: {
+          listJobsForWorkflowRun: vi.fn().mockResolvedValue({
+            data: {
+              jobs: [
+                {
+                  steps: [
+                    {
+                      name: 'Run Tests',
+                      status: 'completed',
+                      started_at: '2024-01-01T00:00:00Z',
+                      completed_at: '2024-01-01T00:01:00Z',
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+
+    vi.mocked(githubModule.getOctokit).mockReturnValue(mockOctokit as any);
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return absolutePath;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Automatically collected execution time')
+    );
+
+    delete process.env.GITHUB_TOKEN;
   });
 
   it('should use auto-shard mode to calculate shards', async () => {

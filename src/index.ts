@@ -174,7 +174,8 @@ export function saveHistoricalData(
     writeFileSync(fullPath, JSON.stringify(updatedData, null, 2) + '\n');
     core.info(`Updated historical data for ${testFiles.length} test file(s) in ${dataPath}`);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
     core.warning(`Failed to save historical data to ${dataPath}: ${errorMessage}`);
   }
 }
@@ -619,7 +620,8 @@ export async function run(): Promise<void> {
           core.info(`Historical data will be loaded from: ${historicalDataPath}`);
         }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
         core.debug(`Could not automatically collect execution time: ${errorMessage}`);
         core.info(`Historical data will be loaded from: ${historicalDataPath}`);
       }

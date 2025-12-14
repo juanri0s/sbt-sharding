@@ -252,6 +252,8 @@ jobs:
           shard-number: ${{ matrix.shard }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTIONS_STEP_DEBUG: true
+          ACTIONS_RUNNER_DEBUG: true
       - name: Verify historical data file was created
         run: |
           echo "=== Verifying historical data file was created ==="

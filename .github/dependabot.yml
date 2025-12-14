@@ -5,7 +5,13 @@
 
 version: 2
 updates:
-  - package-ecosystem: 'npm' # See documentation for possible values
-    directory: '/' # Location of package manifests
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
       interval: 'weekly'
+    # Wait 7 days after a new version is released before updating
+    # This allows time for critical issues to be identified
+    cooldown:
+      days: 7
+    # Use latest versions (open PRs for all updates)
+    open-pull-requests-limit: 10

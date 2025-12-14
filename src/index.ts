@@ -120,8 +120,7 @@ export function analyzeTestComplexity(testFile: string): number {
 
 export function shardByComplexity(
   testFiles: string[],
-  maxShards: number,
-  _isAutoShard: boolean = false
+  maxShards: number
 ): string[][] {
   const totalFiles = testFiles.length;
   const actualShards = Math.min(maxShards, totalFiles);
@@ -174,8 +173,7 @@ export function shardByComplexity(
 
 export function shardByTestFileCount(
   testFiles: string[],
-  maxShards: number,
-  _isAutoShard: boolean = false
+  maxShards: number
 ): string[][] {
   const totalFiles = testFiles.length;
   const actualShards = Math.min(maxShards, totalFiles);
@@ -254,10 +252,10 @@ export async function run(): Promise<void> {
     let shards: string[][];
     switch (algorithm) {
       case 'test-file-count':
-        shards = shardByTestFileCount(testFiles, maxShards, autoShard);
+        shards = shardByTestFileCount(testFiles, maxShards);
         break;
       case 'complexity':
-        shards = shardByComplexity(testFiles, maxShards, autoShard);
+        shards = shardByComplexity(testFiles, maxShards);
         break;
       default:
         throw new Error(`Unknown algorithm: ${algorithm}`);

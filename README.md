@@ -202,6 +202,9 @@ Execution times are automatically collected from the test step via GitHub API. N
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read # Required to access workflow jobs API for execution time detection
+      contents: read
     steps:
       - uses: actions/checkout@v4
 

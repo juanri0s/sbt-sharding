@@ -21,34 +21,21 @@ async function getTestStepExecutionTime(): Promise<number> {
       run_id: context.runId,
     });
 
-    core.info(`[DEBUG] Found ${jobs.data.jobs?.length || 0} jobs in workflow run`);
-    core.info(`[DEBUG] Current job name: ${currentJobName || 'unknown'}`);
-
-    // Prioritize current job if we can identify it
     const sortedJobs = (jobs.data.jobs || []).sort((a, b) => {
       if (currentJobName && a.name === currentJobName) return -1;
       if (currentJobName && b.name === currentJobName) return 1;
-      // Prefer completed jobs
       if (a.status === 'completed' && b.status !== 'completed') return -1;
       if (b.status === 'completed' && a.status !== 'completed') return 1;
       return 0;
     });
 
     for (const job of sortedJobs) {
-      core.info(`[DEBUG] Checking job: ${job.name} (status: ${job.status})`);
-
       if (job.steps) {
         const completedSteps = job.steps.filter(
           (step) => step.completed_at && step.started_at && step.status === 'completed'
         );
 
-        core.info(`[DEBUG] Found ${completedSteps.length} completed steps in job ${job.name}`);
-
         if (completedSteps.length > 0) {
-          // Log step names for debugging
-          const stepNames = completedSteps.map((s) => s.name).join(', ');
-          core.info(`[DEBUG] Completed step names: ${stepNames}`);
-
           const testStep =
             completedSteps.find(
               (step) =>
@@ -61,19 +48,16 @@ async function getTestStepExecutionTime(): Promise<number> {
           if (testStep && testStep.completed_at && testStep.started_at) {
             const start = new Date(testStep.started_at).getTime();
             const end = new Date(testStep.completed_at).getTime();
-            const duration = (end - start) / 1000;
-            core.info(`[DEBUG] Found test step: ${testStep.name}, duration: ${duration}s`);
-            return duration;
+            return (end - start) / 1000;
           }
         }
       }
     }
 
-    core.info('[DEBUG] No test step found with execution time');
     return 0;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    core.info(`[DEBUG] Error getting step execution time: ${errorMessage}`);
+    core.debug(`Could not automatically collect execution time: ${errorMessage}`);
     throw new Error(`Failed to get step execution time: ${errorMessage}`);
   }
 }

@@ -830,7 +830,10 @@ describe('run', () => {
     await run();
 
     expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('Using historical data to optimize shard distribution')
+      expect.stringContaining('Using historical execution time data for')
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('Distributing tests across')
     );
     expect(mockCore.setOutput).toHaveBeenCalled();
   });
@@ -856,6 +859,9 @@ describe('run', () => {
 
     expect(mockCore.info).toHaveBeenCalledWith(
       expect.stringContaining('Historical data file not found')
+    );
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('No historical data available, using')
     );
     expect(mockCore.setOutput).toHaveBeenCalled();
   });
@@ -915,10 +921,52 @@ describe('run', () => {
     await run();
 
     expect(mockCore.setOutput).toHaveBeenCalled();
-    expect(mockCore.info).not.toHaveBeenCalledWith(
-      expect.stringContaining('Using historical data')
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('No historical data available, using')
     );
   });
+
+  it('should log when some files have no historical data', async () => {
+    const testDir = join(process.cwd(), 'test-temp');
+    try {
+      mkdirSync(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+
+    const dataFile = join(testDir, 'partial-times.json');
+    const historicalData = {
+      'src/test/scala/com/example/Test1.scala': 100,
+    };
+    writeFileSync(dataFile, JSON.stringify(historicalData));
+
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+      if (key === 'auto-shard') return false;
+      if (key === 'use-historical-data') return true;
+      return false;
+    });
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '2';
+      if (key === 'algorithm') return 'test-file-count';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      if (key === 'shard-number') return '1';
+      if (key === 'historical-data-path') return dataFile;
+      return '';
+    });
+
+    mockGlob.mockResolvedValue([
+      'src/test/scala/com/example/Test1.scala',
+      'src/test/scala/com/example/Test2.scala',
+    ]);
+
+    await run();
+
+    expect(mockCore.info).toHaveBeenCalledWith(
+      expect.stringContaining('test file(s) have no historical data')
+    );
+    expect(mockCore.setOutput).toHaveBeenCalled();
+  });
+});
 
   it('should output execution time key when historical data is enabled', async () => {
     const testDir = join(process.cwd(), 'test-temp');

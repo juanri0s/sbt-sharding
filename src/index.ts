@@ -172,6 +172,16 @@ export function shardByComplexity(
     return [];
   }
 
+  if (historicalData && Object.keys(historicalData).length > 0) {
+    const filesWithoutData = testFiles.filter((file) => !historicalData[file]);
+
+    if (filesWithoutData.length > 0) {
+      core.info(
+        `${filesWithoutData.length} test file(s) have no historical data, using complexity scores for those`
+      );
+    }
+  }
+
   const weights: TestComplexity[] = testFiles.map((file) => {
     const complexityScore = analyzeTestComplexity(file);
     const weight = getTestWeight(file, historicalData, complexityScore);
@@ -217,6 +227,14 @@ export function shardByTestFileCount(
   }
 
   if (historicalData && Object.keys(historicalData).length > 0) {
+    const filesWithoutData = testFiles.filter((file) => !historicalData[file]);
+
+    if (filesWithoutData.length > 0) {
+      core.info(
+        `${filesWithoutData.length} test file(s) have no historical data, using default distribution for those`
+      );
+    }
+
     const weights: TestComplexity[] = testFiles.map((file) => ({
       file,
       score: historicalData[file] || 1,
@@ -286,7 +304,14 @@ export async function run(): Promise<void> {
     if (useHistoricalData && historicalDataPath) {
       historicalData = loadHistoricalData(historicalDataPath);
       if (historicalData) {
-        core.info(`Using historical data to optimize shard distribution`);
+        const dataCount = Object.keys(historicalData).length;
+        core.info(
+          `Using historical execution time data for ${dataCount} test file(s) to optimize shard distribution`
+        );
+      } else {
+        core.info(
+          `No historical data available, using ${algorithm} algorithm with default distribution`
+        );
       }
     }
 
@@ -300,13 +325,17 @@ export async function run(): Promise<void> {
       core.info(
         `Auto-shard mode: calculated ${maxShards} shard(s) for ${testFiles.length} test files`
       );
-      core.info(`Using ${algorithm} algorithm to distribute tests across ${maxShards} shard(s)`);
     } else {
       maxShards = parseInt(maxShardsInput, 10);
       if (isNaN(maxShards) || maxShards < 1) {
         throw new Error('max-shards must be a positive integer');
       }
+    }
+
+    if (!historicalData || Object.keys(historicalData).length === 0) {
       core.info(`Using ${algorithm} algorithm to distribute tests across ${maxShards} shard(s)`);
+    } else {
+      core.info(`Distributing tests across ${maxShards} shard(s) using historical execution times`);
     }
 
     if (testFiles.length === 0) {

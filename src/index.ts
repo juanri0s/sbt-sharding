@@ -357,8 +357,8 @@ export async function run(): Promise<void> {
   }
 }
 
-/* c8 ignore start */
+// This code only runs when executed as a GitHub Action, not during tests
+/* v8 ignore next 3 -- @preserve */
 if (!process.env.VITEST) {
   void run();
 }
-/* c8 ignore end */

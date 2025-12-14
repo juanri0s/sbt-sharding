@@ -191,6 +191,10 @@ jobs:
 
   test-historical-data-end-to-end-run1:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
       - name: Setup Node.js
@@ -219,11 +223,11 @@ jobs:
           max-shards: 2
           algorithm: complexity
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
-          shard-number: 1
+          shard-number: ${{ matrix.shard }}
       - name: Run tests
         id: test-run1
         run: |
-          echo "=== RUN 1: Running tests for shard ${{ steps.shard-run1.outputs.shard-number }} ==="
+          echo "=== RUN 1: Running tests for shard ${{ steps.shard-run1.outputs.shard-number }}/${{ steps.shard-run1.outputs.total-shards }} ==="
           echo "Test files: ${{ steps.shard-run1.outputs.test-files }}"
           echo "Test commands: ${{ steps.shard-run1.outputs.test-commands }}"
           # Simulate test execution with different times for different test files
@@ -245,39 +249,51 @@ jobs:
           max-shards: 2
           algorithm: complexity
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
-          shard-number: 1
+          shard-number: ${{ matrix.shard }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify and create historical data file if needed
+      - name: Upload shard-specific historical data
+        # https://github.com/actions/upload-artifact/releases/tag/v6.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: test-times-e2e-shard-${{ matrix.shard }}
+          path: .github/test-times-e2e.json
+          retention-days: 1
+          if-no-files-found: error
+
+  test-historical-data-end-to-end-run1-merge:
+    runs-on: ubuntu-latest
+    needs: test-historical-data-end-to-end-run1
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+      - name: Download all shard artifacts
+        # https://github.com/actions/download-artifact/releases/tag/v7.0.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: test-times-e2e-shard-*
+          merge-multiple: true
+          path: .github
+      - name: Merge historical data from all shards
         run: |
-          echo "=== Verifying historical data file exists before upload ==="
+          echo "=== Merging historical data from all shards ==="
+          mkdir -p .github
+          # Merge all shard files into one (they should have different test files)
+          # If files overlap, we'll keep the last one (in real usage, they'd be averaged)
           if [ ! -f .github/test-times-e2e.json ]; then
-            echo "WARNING: Historical data file was not created by action"
-            echo "Creating test data file manually for end-to-end testing..."
-            mkdir -p .github
-            # Create test data with execution times for the test files that were in shard 1
-            cat > .github/test-times-e2e.json << 'EOF'
-          {
-            "test-fixtures/src/test/scala/com/example/Test1.scala": 5.0,
-            "test-fixtures/src/test/scala/com/example/Test3.scala": 3.0,
-            "test-fixtures/src/test/scala/com/example/Test5.scala": 4.0
-          }
-          EOF
-          elif [ ! -s .github/test-times-e2e.json ] || [ "$(cat .github/test-times-e2e.json)" = "{}" ]; then
-            echo "WARNING: Historical data file is empty, creating test data..."
-            cat > .github/test-times-e2e.json << 'EOF'
-          {
-            "test-fixtures/src/test/scala/com/example/Test1.scala": 5.0,
-            "test-fixtures/src/test/scala/com/example/Test3.scala": 3.0,
-            "test-fixtures/src/test/scala/com/example/Test5.scala": 4.0
-          }
-          EOF
+            echo "ERROR: No historical data files found after merging shards!"
+            echo "This means execution time detection failed in all shards."
+            exit 1
           fi
-          echo "Historical data file contents:"
+          echo "Merged historical data file:"
           cat .github/test-times-e2e.json
           echo ""
-          echo "File size: $(wc -c < .github/test-times-e2e.json) bytes"
-      - name: Upload historical data artifact
+          echo "File contains $(jq 'length' .github/test-times-e2e.json) test files"
+          # Verify we have data
+          if [ "$(jq 'length' .github/test-times-e2e.json)" -eq 0 ]; then
+            echo "ERROR: Historical data file is empty!"
+            exit 1
+          fi
+      - name: Upload merged historical data artifact
         # https://github.com/actions/upload-artifact/releases/tag/v6.0.0
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
@@ -317,13 +333,21 @@ jobs:
             echo "ERROR: Historical data file not found!"
             exit 1
           fi
+      - name: Determine shards for second run using auto-shard
+        id: determine-run2
+        uses: ./
+        with:
+          auto-shard: true
+          algorithm: complexity
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
+          shard-number: 1
       - name: Shard tests (second run - with historical data)
         id: shard-run2
         uses: ./
         with:
+          auto-shard: true
           use-historical-data: true
           historical-data-path: '.github/test-times-e2e.json'
-          max-shards: 2
           algorithm: complexity
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           shard-number: 1
@@ -353,9 +377,9 @@ jobs:
         id: save-run2
         uses: ./
         with:
+          auto-shard: true
           use-historical-data: true
           historical-data-path: '.github/test-times-e2e.json'
-          max-shards: 2
           algorithm: complexity
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           shard-number: 1

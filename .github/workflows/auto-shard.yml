@@ -8,6 +8,7 @@ on:
 
 jobs:
   determine-shards:
+    name: Determine Shards From Auto-Shard
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.determine.outputs.shard-matrix }}
@@ -32,6 +33,7 @@ jobs:
   run-tests:
     runs-on: ubuntu-latest
     needs: determine-shards
+    name: Run Auto-Shard Tests
     strategy:
       fail-fast: false
       matrix:

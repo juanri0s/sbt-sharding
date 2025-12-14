@@ -45,11 +45,15 @@ jobs:
 
       - name: Test sharding with Scala test files
         id: shard
+        env:
+          TEST_ENV_VAR: test-value-123
+          ANOTHER_VAR: another-value
         uses: ./
         with:
           max-shards: 3
           algorithm: test-file-count
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala'
+          test-env-vars: 'TEST_ENV_VAR,ANOTHER_VAR'
 
       - name: Display shard info
         run: |
@@ -58,5 +62,9 @@ jobs:
           echo "Commands: ${{ steps.shard.outputs.test-commands }}"
           if [ -z "${{ steps.shard.outputs.test-files }}" ]; then
             echo "ERROR: No test files found!"
+            exit 1
+          fi
+          if [[ ! "${{ steps.shard.outputs.test-commands }}" == *"TEST_ENV_VAR=test-value-123"* ]]; then
+            echo "ERROR: Environment variables not included in test commands!"
             exit 1
           fi

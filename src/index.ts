@@ -70,6 +70,7 @@ export async function run(): Promise<void> {
     const maxShards = parseInt(core.getInput('max-shards'), 10);
     const algorithm = core.getInput('algorithm') || 'test-file-count';
     const testPattern = core.getInput('test-pattern') || '**/*Test.scala,**/*Spec.scala';
+    const testEnvVars = core.getInput('test-env-vars') || '';
 
     const shardInput = core.getInput('shard-number');
     const shardEnv = process.env.GITHUB_SHARD;
@@ -114,7 +115,26 @@ export async function run(): Promise<void> {
     core.setOutput('test-files', currentShardFiles.join(','));
 
     const testCommands = currentShardFiles.map(testFileToSbtCommand);
-    core.setOutput('test-commands', testCommands.join(' '));
+
+    let finalCommands = testCommands.join(' ');
+    if (testEnvVars) {
+      const envVarList = testEnvVars
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+      const envVars = envVarList
+        .map((varName) => {
+          const value = process.env[varName];
+          return value ? `${varName}=${value}` : null;
+        })
+        .filter((v): v is string => v !== null);
+
+      if (envVars.length > 0) {
+        finalCommands = `${envVars.join(' ')} ${finalCommands}`;
+      }
+    }
+
+    core.setOutput('test-commands', finalCommands);
 
     core.exportVariable('SBT_TEST_FILES', currentShardFiles.join(','));
     core.exportVariable('SBT_TEST_COMMANDS', testCommands.join(' '));
@@ -122,7 +142,7 @@ export async function run(): Promise<void> {
     if (currentShardFiles.length > 0) {
       core.info(`\nTest files in shard ${currentShard}:`);
       currentShardFiles.forEach((file) => core.info(`  - ${file}`));
-      core.info(`\nSBT command: sbt ${testCommands.join(' ')}`);
+      core.info(`\nCommand: sbt ${finalCommands}`);
     } else {
       core.warning(`No test files assigned to shard ${currentShard}`);
     }

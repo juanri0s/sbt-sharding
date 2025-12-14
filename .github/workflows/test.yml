@@ -244,14 +244,31 @@ jobs:
         id: save-run1
         uses: ./
         with:
+          auto-shard: true
           use-historical-data: true
           historical-data-path: '.github/test-times-e2e.json'
-          max-shards: 2
           algorithm: complexity
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
           shard-number: ${{ matrix.shard }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify historical data file was created
+        run: |
+          echo "=== Verifying historical data file was created ==="
+          if [ ! -f .github/test-times-e2e.json ]; then
+            echo "ERROR: Historical data file was not created!"
+            echo "This means execution time detection failed. Check the action logs above."
+            exit 1
+          fi
+          if [ ! -s .github/test-times-e2e.json ] || [ "$(cat .github/test-times-e2e.json)" = "{}" ]; then
+            echo "ERROR: Historical data file is empty!"
+            echo "Execution time was detected but no data was saved."
+            exit 1
+          fi
+          echo "Historical data file created successfully:"
+          cat .github/test-times-e2e.json
+          echo ""
+          echo "File contains $(jq 'length' .github/test-times-e2e.json) test file(s)"
       - name: Upload shard-specific historical data
         # https://github.com/actions/upload-artifact/releases/tag/v6.0.0
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f

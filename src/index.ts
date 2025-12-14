@@ -3,19 +3,58 @@ import { glob } from 'glob';
 import { readFileSync, statSync } from 'fs';
 import { join, resolve, relative } from 'path';
 
-export async function discoverTestFiles(testPattern: string): Promise<string[]> {
+function isValidPath(path: string, baseDir: string): boolean {
+  try {
+    const resolved = resolve(baseDir, path);
+    const baseResolved = resolve(baseDir);
+    const relativePath = relative(baseResolved, resolved);
+    return !relativePath.startsWith('..') && !relativePath.includes('..');
+  } catch {
+    return false;
+  }
+}
+
+export async function discoverTestFiles(
+  testPattern: string,
+  projectPath?: string
+): Promise<string[]> {
   const patterns = testPattern.split(',').map((p) => p.trim());
   const testFiles = new Set<string>();
+  const cwd = process.cwd();
+
+  if (projectPath && !isValidPath(projectPath, cwd)) {
+    return [];
+  }
 
   for (const pattern of patterns) {
-    const files = await glob(pattern, {
+    const scopedPattern = projectPath ? join(projectPath, pattern) : pattern;
+    const files = await glob(scopedPattern, {
       ignore: ['**/node_modules/**', '**/target/**', '**/.git/**'],
       absolute: false,
+      cwd,
     });
-    files.forEach((file) => testFiles.add(file));
+    files.forEach((file) => {
+      if (!isValidPath(file, cwd)) {
+        return;
+      }
+      if (projectPath) {
+        const filePath = resolve(cwd, file);
+        const projectResolved = resolve(cwd, projectPath);
+        const relativePath = relative(projectResolved, filePath);
+        if (!relativePath.startsWith('..') && !relativePath.includes('..')) {
+          testFiles.add(file);
+        }
+      } else {
+        testFiles.add(file);
+      }
+    });
   }
 
   return Array.from(testFiles).sort();
+}
+
+function isValidClassName(className: string): boolean {
+  return /^[a-zA-Z0-9_.$]+$/.test(className) && className.length <= 512;
 }
 
 export function testFileToSbtCommand(testFile: string): string {
@@ -41,7 +80,7 @@ export function testFileToSbtCommand(testFile: string): string {
   relativePath = relativePath.replace(/\.scala$/, '');
   const testClass = relativePath.replace(/\//g, '.');
 
-  if (!testClass) {
+  if (!testClass || !isValidClassName(testClass)) {
     core.warning(`Could not convert test file path to class name: ${testFile}`);
     return '';
   }
@@ -61,7 +100,6 @@ function isValidTestFilePath(filePath: string, baseDir: string): boolean {
     const resolved = resolve(filePath);
     const baseResolved = resolve(baseDir);
     const relativePath = relative(baseResolved, resolved);
-    // Prevent path traversal - ensure the resolved path is within baseDir
     return !relativePath.startsWith('..') && !relativePath.includes('..');
   } catch {
     return false;
@@ -98,13 +136,11 @@ export function analyzeTestComplexity(testFile: string): number {
     const baseDir = process.cwd();
     const filePath = testFile.startsWith('/') ? testFile : join(baseDir, testFile);
 
-    // Validate path to prevent path traversal
     if (!isValidTestFilePath(filePath, baseDir)) {
       core.warning(`Invalid file path detected (possible path traversal): ${testFile}`);
       return score;
     }
 
-    // Check file size before reading to prevent DoS
     const stats = statSync(filePath);
     if (stats.size > MAX_FILE_SIZE) {
       core.warning(
@@ -142,9 +178,7 @@ export function analyzeTestComplexity(testFile: string): number {
     if (fileSize > 5000) {
       score += 1;
     }
-  } catch {
-    core.warning(`Could not read test file for complexity analysis: ${testFile}`);
-  }
+  } catch {}
 
   return score;
 }
@@ -217,60 +251,48 @@ export function shardByTestFileCount(testFiles: string[], maxShards: number): st
   return shards;
 }
 
-export function calculateOptimalShards(testFileCount: number): number {
-  if (testFileCount === 0) {
-    return 1;
-  }
-
-  let baseShards: number;
-  if (testFileCount <= 5) {
-    baseShards = 1;
-  } else if (testFileCount <= 20) {
-    baseShards = Math.ceil(testFileCount / 5);
-  } else {
-    baseShards = Math.ceil(testFileCount / 10);
-  }
-
-  return Math.min(baseShards, 10);
-}
-
 export async function run(): Promise<void> {
   try {
-    const autoShardMatrix = core.getBooleanInput('auto-shard-matrix');
     const maxShardsInput = core.getInput('max-shards');
+    const shardNumberInput = core.getInput('shard-number') || '1';
     const algorithm = core.getInput('algorithm') || 'round-robin';
     const testPattern =
       core.getInput('test-pattern') ||
       '**/*Test.scala,**/*Spec.scala,**/Test*.scala,**/Spec*.scala';
-    const currentShard = 1;
+    const projectPathInput = core.getInput('project-path') || undefined;
+    const cwd = process.cwd();
 
-    core.info(`Discovering test files with pattern: ${testPattern}`);
-    const testFiles = await discoverTestFiles(testPattern);
-    core.info(`Found ${testFiles.length} test files`);
+    if (projectPathInput) {
+      if (projectPathInput.length > 512) {
+        throw new Error('Project-path too long');
+      }
+      if (!isValidPath(projectPathInput, cwd)) {
+        throw new Error('Invalid project-path');
+      }
+    }
+    const projectPath = projectPathInput;
 
-    // Auto-shard-matrix mode: only calculate shard count and output matrix
-    if (autoShardMatrix) {
-      const totalShards = calculateOptimalShards(testFiles.length);
-      core.info(
-        `Auto-shard-matrix mode: calculated ${totalShards} shard(s) for ${testFiles.length} test files`
-      );
-      core.setOutput('total-shards', totalShards.toString());
-      core.setOutput(
-        'shard-matrix',
-        JSON.stringify(Array.from({ length: totalShards }, (_, i) => i + 1))
-      );
-      // In matrix-only mode, we don't distribute files or generate commands
-      core.setOutput('test-files', '');
-      core.setOutput('test-commands', '');
-      return;
+    const currentShard = parseInt(shardNumberInput, 10);
+    if (isNaN(currentShard) || currentShard < 1) {
+      throw new Error('shard-number must be a positive integer');
     }
 
-    // Normal mode: use algorithm to distribute files
+    if (projectPath) {
+      core.info(`Discovering test files with pattern: ${testPattern} in project: ${projectPath}`);
+    } else {
+      core.info(`Discovering test files with pattern: ${testPattern}`);
+    }
+    const testFiles = await discoverTestFiles(testPattern, projectPath);
+    core.info(`Found ${testFiles.length} test files`);
+
+    if (!maxShardsInput) {
+      throw new Error('max-shards is required');
+    }
+
     const maxShards = parseInt(maxShardsInput, 10);
     if (isNaN(maxShards) || maxShards < 1) {
       throw new Error('max-shards must be a positive integer');
     }
-    // Prevent DoS by limiting max shards
     if (maxShards > 100) {
       throw new Error('max-shards cannot exceed 100');
     }

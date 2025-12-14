@@ -1,6 +1,6 @@
 {
   "name": "sbt-test-sharding",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "type": "module",
   "description": "GitHub Action for automatically sharding Scala tests",
   "repository": "https://github.com/juanri0s/sbt-test-sharding",

@@ -37,6 +37,7 @@ jobs:
         uses: ./
         with:
           max-shards: 3
+          shard-number: ${{ matrix.shard }}
           algorithm: round-robin
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
       - name: Display shard info (round-robin)
@@ -53,6 +54,7 @@ jobs:
         uses: ./
         with:
           max-shards: 3
+          shard-number: ${{ matrix.shard }}
           algorithm: complexity
       - name: Display shard info (complexity)
         run: |

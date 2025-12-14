@@ -30,8 +30,8 @@ import {
   calculateOptimalShards,
   run,
 } from './index.js';
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 const mockGlob = glob as ReturnType<typeof vi.fn>;
 const mockCore = core as {
@@ -413,7 +413,7 @@ describe('run', () => {
   });
 
   it('should use complexity algorithm', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
+    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((_key: string) => {
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
@@ -976,5 +976,4 @@ describe('shardByComplexity', () => {
     const complexShard = result.find((shard) => shard.includes(complexFile));
     expect(complexShard).toBeDefined();
   });
-
 });

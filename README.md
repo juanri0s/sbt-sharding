@@ -190,7 +190,6 @@ Distributes tests based on estimated complexity to balance execution time across
 
 Tests are sorted by complexity (highest first) and distributed using a bin-packing algorithm to balance total complexity across shards.
 
-
 **How it works:**
 
 1. **Download artifact** (you): Try to download historical data artifact from previous runs. If nothing exists, that's fine - first run.

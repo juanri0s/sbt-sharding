@@ -121,7 +121,7 @@ export function analyzeTestComplexity(testFile: string): number {
 export function shardByComplexity(
   testFiles: string[],
   maxShards: number,
-  isAutoShard: boolean = false
+  _isAutoShard: boolean = false
 ): string[][] {
   const totalFiles = testFiles.length;
   const actualShards = Math.min(maxShards, totalFiles);
@@ -175,7 +175,7 @@ export function shardByComplexity(
 export function shardByTestFileCount(
   testFiles: string[],
   maxShards: number,
-  isAutoShard: boolean = false
+  _isAutoShard: boolean = false
 ): string[][] {
   const totalFiles = testFiles.length;
   const actualShards = Math.min(maxShards, totalFiles);

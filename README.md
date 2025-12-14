@@ -37,7 +37,7 @@ jobs:
 
 ### Auto-Shard Example
 
-Automatically determine the number of shards based on test file count. Use a two-job approach to dynamically generate the matrix:
+Automatically determine the number of shards based on test file count. Use a two-job approach to auto-generate the matrix:
 
 ```yaml
 name: Test

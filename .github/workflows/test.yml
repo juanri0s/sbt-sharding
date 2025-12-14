@@ -118,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJson(needs.test-dynamic-matrix.outputs.matrix) }}
+        shard: ${{ fromJson(needs.test-auto-shard-matrix-generation.outputs.matrix) }}
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
       - name: Setup Node.js

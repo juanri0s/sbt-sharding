@@ -32,7 +32,7 @@
     "update": "pnpm update --latest --recursive"
   },
   "dependencies": {
-    "@actions/core": "^1.11.1",
+    "@actions/core": "^2.0.1",
     "@actions/github": "^6.0.0",
     "glob": "^13.0.0"
   },

@@ -3,23 +3,20 @@ description: 'Automatically shard Scala tests for parallel execution in CI'
 author: 'juanri0s'
 inputs:
   max-shards:
-    description: 'Maximum number of shards to split tests into (ignored if auto-shard is true)'
+    description: 'Maximum number of shards to split tests into (ignored if auto-shard-matrix is true)'
     required: false
-  auto-shard:
-    description: 'Automatically determine the number of shards based on test file count'
+  auto-shard-matrix:
+    description: 'Automatically determine the number of shards based on test file count and output only the shard matrix (no file distribution)'
     required: false
     default: 'false'
   algorithm:
-    description: 'Sharding algorithm to use (supports: "round-robin", "complexity")'
+    description: 'Sharding algorithm to use (supports: "round-robin", "complexity"). Not used when auto-shard-matrix is true.'
     required: false
     default: 'round-robin'
   test-pattern:
     description: 'Pattern to match test files (default: **/*Test.scala,**/*Spec.scala)'
     required: false
     default: '**/*Test.scala,**/*Spec.scala'
-  test-env-vars:
-    description: 'Comma-separated list of environment variable names to include in test command output (e.g., "JAVA_OPTS,SCALA_VERSION")'
-    required: false
 outputs:
   total-shards:
     description: 'Total number of shards created'

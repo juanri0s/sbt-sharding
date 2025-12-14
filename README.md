@@ -34,7 +34,7 @@ jobs:
         run: sbt ${{ steps.shard.outputs.test-commands }}
 ```
 
-### Auto-Shard Example
+### Auto-Shard-Matrix Example
 
 Automatically determine the number of shards based on test file count. Use a two-job approach to auto-generate the matrix:
 
@@ -54,8 +54,7 @@ jobs:
         id: shard
         uses: ./
         with:
-          auto-shard: true
-          algorithm: round-robin
+          auto-shard-matrix: true
 
   test:
     needs: determine-shards
@@ -71,31 +70,10 @@ jobs:
         id: shard
         uses: ./
         with:
-          auto-shard: true
+          max-shards: ${{ fromJson(needs.determine-shards.outputs.matrix) | length }}
           algorithm: round-robin
       - name: Run Tests
         run: sbt ${{ steps.shard.outputs.test-commands }}
-
-### Environment Variables
-
-Include environment variables in the test command:
-
-```yaml
-- name: Shard Tests
-  id: shard
-  uses: ./
-  with:
-    max-shards: 4
-    test-env-vars: 'JAVA_OPTS,SCALA_VERSION'
-
-- name: Run Tests
-  env:
-    JAVA_OPTS: -Xmx2g
-    SCALA_VERSION: 2.13
-  run: sbt ${{ steps.shard.outputs.test-commands }}
-```
-
-The `test-commands` output will include the environment variables: `JAVA_OPTS=-Xmx2g SCALA_VERSION=2.13 testOnly com.example.Test1`
 
 ````
 
@@ -137,13 +115,12 @@ jobs:
 
 ## Inputs
 
-| Input           | Description                                                                          | Required | Default                         |
-| --------------- | ------------------------------------------------------------------------------------ | -------- | ------------------------------- |
-| `max-shards`    | Maximum number of shards to split tests into (ignored if `auto-shard` is true)       | No       | -                               |
-| `auto-shard`    | Automatically determine the number of shards based on test file count                | No       | `false`                         |
-| `algorithm`     | Sharding algorithm to use                                                            | No       | `round-robin`                   |
-| `test-pattern`  | Comma-separated glob patterns for test files                                         | No       | `**/*Test.scala,**/*Spec.scala` |
-| `test-env-vars` | Comma-separated list of environment variable names to include in test command output | No       | -                               |
+| Input               | Description                                                                                                             | Required | Default                         |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------- |
+| `max-shards`        | Maximum number of shards to split tests into (ignored if `auto-shard-matrix` is true)                                   | No       | -                               |
+| `auto-shard-matrix` | Automatically determine the number of shards based on test file count and output only the matrix (no file distribution) | No       | `false`                         |
+| `algorithm`         | Sharding algorithm to use                                                                                               | No       | `round-robin`                   |
+| `test-pattern`      | Comma-separated glob patterns for test files                                                                            | No       | `**/*Test.scala,**/*Spec.scala` |
 
 ## Outputs
 
@@ -156,10 +133,12 @@ jobs:
 
 ## Environment Variables
 
-The action also sets these environment variables for convenience:
+The action sets these environment variables for convenience:
 
 - `SBT_TEST_FILES`: Comma-separated list of test files
 - `SBT_TEST_COMMANDS`: SBT commands to run tests
+
+**Note:** To set environment variables for your test execution, use the `env` key in your GitHub Actions workflow step, not this action.
 
 ## Sharding Algorithms
 
@@ -181,9 +160,11 @@ Distributes tests based on estimated complexity to balance execution time across
 
 Tests are sorted by complexity (highest first) and distributed using a greedy bin-packing algorithm to balance total complexity across shards.
 
-## Auto-Shard Mode
+## Auto-Shard-Matrix Mode
 
-When `auto-shard: true` is set, the action automatically determines the optimal number of shards based on test file count:
+When `auto-shard-matrix: true` is set, the action automatically determines the optimal number of shards based on test file count and outputs **only** the shard matrix. No file distribution or algorithm is used - this mode is purely for calculating the shard count.
+
+**Shard calculation:**
 
 - **0 files**: 1 shard
 - **1-5 files**: 1 shard
@@ -192,11 +173,11 @@ When `auto-shard: true` is set, the action automatically determines the optimal 
 
 The final shard count is capped at 10 shards maximum.
 
-**Example:** If you have 15 test files, auto-shard will calculate 3 shards (15 / 5 = 3).
+**Example:** If you have 15 test files, auto-shard-matrix will calculate 3 shards (15 / 5 = 3) and output `[1,2,3]` as the matrix.
 
-This eliminates the need to manually specify `max-shards` and adjust it as your test suite grows or slows down. The action will calculate the appropriate number of shards and output it in the `total-shards` output.
+**Important:** When using `auto-shard-matrix`, the `algorithm` input is **ignored**. The algorithm is only used when actually distributing files across shards (in the second job of a two-job workflow).
 
-**Note:** GitHub Actions matrices are static and cannot be dynamically generated. You need a separate job to determine the matrix using `outputs.shard-matrix`, then use that in your test job's matrix strategy.
+**Note:** GitHub Actions matrices are static and cannot be dynamically generated. You need a separate job to determine the matrix using `outputs.shard-matrix`, then use that in your test job's matrix strategy. In the test job, use `max-shards` (set to the matrix length) and `algorithm` to actually distribute files.
 
 ## Requirements
 

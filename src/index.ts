@@ -236,32 +236,41 @@ export function calculateOptimalShards(testFileCount: number): number {
 
 export async function run(): Promise<void> {
   try {
-    const autoShard = core.getBooleanInput('auto-shard');
+    const autoShardMatrix = core.getBooleanInput('auto-shard-matrix');
     const maxShardsInput = core.getInput('max-shards');
     const algorithm = core.getInput('algorithm') || 'round-robin';
     const testPattern = core.getInput('test-pattern') || '**/*Test.scala,**/*Spec.scala';
-    const testEnvVars = core.getInput('test-env-vars') || '';
     const currentShard = 1;
 
     core.info(`Discovering test files with pattern: ${testPattern}`);
     const testFiles = await discoverTestFiles(testPattern);
     core.info(`Found ${testFiles.length} test files`);
 
-    let maxShards: number;
-    if (autoShard) {
-      maxShards = calculateOptimalShards(testFiles.length);
+    // Auto-shard-matrix mode: only calculate shard count and output matrix
+    if (autoShardMatrix) {
+      const totalShards = calculateOptimalShards(testFiles.length);
       core.info(
-        `Auto-shard mode: calculated ${maxShards} shard(s) for ${testFiles.length} test files`
+        `Auto-shard-matrix mode: calculated ${totalShards} shard(s) for ${testFiles.length} test files`
       );
-    } else {
-      maxShards = parseInt(maxShardsInput, 10);
-      if (isNaN(maxShards) || maxShards < 1) {
-        throw new Error('max-shards must be a positive integer');
-      }
-      // Prevent DoS by limiting max shards
-      if (maxShards > 100) {
-        throw new Error('max-shards cannot exceed 100');
-      }
+      core.setOutput('total-shards', totalShards.toString());
+      core.setOutput(
+        'shard-matrix',
+        JSON.stringify(Array.from({ length: totalShards }, (_, i) => i + 1))
+      );
+      // In matrix-only mode, we don't distribute files or generate commands
+      core.setOutput('test-files', '');
+      core.setOutput('test-commands', '');
+      return;
+    }
+
+    // Normal mode: use algorithm to distribute files
+    const maxShards = parseInt(maxShardsInput, 10);
+    if (isNaN(maxShards) || maxShards < 1) {
+      throw new Error('max-shards must be a positive integer');
+    }
+    // Prevent DoS by limiting max shards
+    if (maxShards > 100) {
+      throw new Error('max-shards cannot exceed 100');
     }
 
     core.info(`Using ${algorithm} algorithm to distribute tests across ${maxShards} shard(s)`);
@@ -310,40 +319,7 @@ export async function run(): Promise<void> {
     );
 
     const testCommands = currentShardFiles.map(testFileToSbtCommand);
-
-    let finalCommands = testCommands.join(' ');
-    if (testEnvVars) {
-      // Validate env var names to prevent injection
-      const envVarNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
-      const envVarList = testEnvVars
-        .split(',')
-        .map((v) => v.trim())
-        .filter(Boolean)
-        .filter((name) => {
-          if (!envVarNamePattern.test(name)) {
-            core.warning(`Invalid environment variable name (skipped): ${name}`);
-            return false;
-          }
-          return true;
-        });
-
-      const envVars = envVarList
-        .map((varName) => {
-          const value = process.env[varName];
-          if (!value) {
-            return null;
-          }
-          // Sanitize env var value to prevent command injection
-          // Replace potentially dangerous characters with underscores
-          const sanitizedValue = value.replace(/[;&|$`<>]/g, '_');
-          return `${varName}=${sanitizedValue}`;
-        })
-        .filter((v): v is string => v !== null);
-
-      if (envVars.length > 0) {
-        finalCommands = `${envVars.join(' ')} ${finalCommands}`;
-      }
-    }
+    const finalCommands = testCommands.join(' ');
 
     core.setOutput('test-commands', finalCommands);
 

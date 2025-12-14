@@ -42,7 +42,6 @@ jobs:
           max-shards: 3
           algorithm: round-robin
           test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
-          test-env-vars: 'TEST_ENV_VAR,ANOTHER_VAR'
       - name: Display shard info (round-robin)
         run: |
           echo "Shard: ${{ env.GITHUB_SHARD }}/${{ steps.shard-count.outputs.total-shards }}"

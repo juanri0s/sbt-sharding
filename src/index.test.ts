@@ -559,136 +559,12 @@ describe('run', () => {
     expect(mockCore.setFailed).toHaveBeenCalledWith('String error');
   });
 
-  it('should include environment variables in test command', async () => {
-    process.env.JAVA_OPTS = '-Xmx2g';
-    process.env.SCALA_VERSION = '2.13';
+  it('should use auto-shard-matrix mode to calculate shards and output matrix only', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
+      if (key === 'auto-shard-matrix') return true;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'round-robin';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'test-env-vars') return 'JAVA_OPTS,SCALA_VERSION';
-      return '';
-    });
-
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
-
-    await run();
-
-    expect(mockCore.setOutput).toHaveBeenCalledWith(
-      'test-commands',
-      expect.stringMatching(/JAVA_OPTS=-Xmx2g SCALA_VERSION=2.13 testOnly/)
-    );
-
-    delete process.env.JAVA_OPTS;
-    delete process.env.SCALA_VERSION;
-  });
-
-  it('should skip invalid environment variable names', async () => {
-    process.env.VALID_VAR = 'value';
-    process.env.INVALID_VAR = 'value';
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'round-robin';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'test-env-vars') return 'VALID_VAR,INVALID-VAR,123INVALID';
-      return '';
-    });
-
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
-
-    await run();
-
-    expect(mockCore.warning).toHaveBeenCalledWith(
-      expect.stringContaining('Invalid environment variable name')
-    );
-    expect(mockCore.setOutput).toHaveBeenCalledWith(
-      'test-commands',
-      expect.stringMatching(/VALID_VAR=value/)
-    );
-    expect(mockCore.setOutput).toHaveBeenCalledWith(
-      'test-commands',
-      expect.not.stringMatching(/INVALID-VAR|123INVALID/)
-    );
-
-    delete process.env.VALID_VAR;
-    delete process.env.INVALID_VAR;
-  });
-
-  it('should sanitize environment variable values', async () => {
-    process.env.TEST_VAR = 'value;rm -rf /';
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'round-robin';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'test-env-vars') return 'TEST_VAR';
-      return '';
-    });
-
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
-
-    await run();
-
-    const setOutputCalls = (mockCore.setOutput as ReturnType<typeof vi.fn>).mock.calls;
-    const testCommandsCall = setOutputCalls.find((call) => call[0] === 'test-commands');
-    expect(testCommandsCall).toBeDefined();
-    expect(testCommandsCall[1]).toContain('TEST_VAR=');
-    // Verify dangerous characters are sanitized (replaced with _)
-    expect(testCommandsCall[1]).not.toContain('value;rm');
-    expect(testCommandsCall[1]).toMatch(/TEST_VAR=value_rm/);
-
-    delete process.env.TEST_VAR;
-  });
-
-  it('should skip missing environment variables', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return false;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'max-shards') return '1';
-      if (key === 'algorithm') return 'round-robin';
-      if (key === 'test-pattern') return '**/*Test.scala';
-      if (key === 'test-env-vars') return 'MISSING_VAR,JAVA_OPTS';
-      return '';
-    });
-
-    process.env.JAVA_OPTS = '-Xmx2g';
-
-    mockGlob.mockResolvedValue(['src/test/scala/com/example/Test1.scala']);
-
-    await run();
-
-    expect(mockCore.setOutput).toHaveBeenCalledWith(
-      'test-commands',
-      expect.stringMatching(/JAVA_OPTS=-Xmx2g testOnly/)
-    );
-    expect(mockCore.setOutput).toHaveBeenCalledWith(
-      'test-commands',
-      expect.not.stringMatching(/MISSING_VAR/)
-    );
-
-    delete process.env.JAVA_OPTS;
-  });
-
-  it('should use auto-shard mode to calculate shards', async () => {
-    (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return true;
-      return false;
-    });
-    mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       return '';
     });
@@ -705,22 +581,25 @@ describe('run', () => {
     await run();
 
     expect(mockCore.info).toHaveBeenCalledWith(
-      expect.stringContaining('Auto-shard mode: calculated')
+      expect.stringContaining('Auto-shard-matrix mode: calculated')
     );
-    expect(mockCore.setOutput).toHaveBeenCalled();
-    expect(mockCore.setOutput).toHaveBeenCalledWith(
-      'shard-matrix',
-      expect.stringMatching(/^\[.*\]$/)
+    expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '2');
+    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-matrix', JSON.stringify([1, 2]));
+    expect(mockCore.setOutput).toHaveBeenCalledWith('test-files', '');
+    expect(mockCore.setOutput).toHaveBeenCalledWith('test-commands', '');
+    // Should not use algorithm in auto-shard-matrix mode - verify no "Using X algorithm" message
+    const algorithmInfoCalls = (mockCore.info as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call) => call[0]?.includes('Using') && call[0]?.includes('algorithm')
     );
+    expect(algorithmInfoCalls.length).toBe(0);
   });
 
-  it('should calculate 1 shard for 5 or fewer files', async () => {
+  it('should calculate 1 shard for 5 or fewer files in auto-shard-matrix mode', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return true;
+      if (key === 'auto-shard-matrix') return true;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       return '';
     });
@@ -734,15 +613,15 @@ describe('run', () => {
     await run();
 
     expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '1');
+    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-matrix', JSON.stringify([1]));
   });
 
-  it('should calculate multiple shards for many files', async () => {
+  it('should calculate multiple shards for many files in auto-shard-matrix mode', async () => {
     (mockCore.getBooleanInput as ReturnType<typeof vi.fn>).mockImplementation((key: string) => {
-      if (key === 'auto-shard') return true;
+      if (key === 'auto-shard-matrix') return true;
       return false;
     });
     mockCore.getInput.mockImplementation((key: string) => {
-      if (key === 'algorithm') return 'round-robin';
       if (key === 'test-pattern') return '**/*Test.scala';
       return '';
     });
@@ -755,11 +634,8 @@ describe('run', () => {
 
     await run();
 
-    expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', expect.any(String));
-    const totalShards = (mockCore.setOutput as ReturnType<typeof vi.fn>).mock.calls.find(
-      (call) => call[0] === 'total-shards'
-    )?.[1];
-    expect(parseInt(totalShards as string, 10)).toBeGreaterThan(1);
+    expect(mockCore.setOutput).toHaveBeenCalledWith('total-shards', '3');
+    expect(mockCore.setOutput).toHaveBeenCalledWith('shard-matrix', JSON.stringify([1, 2, 3]));
   });
 });
 

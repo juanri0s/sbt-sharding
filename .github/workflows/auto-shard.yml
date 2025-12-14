@@ -28,7 +28,8 @@ jobs:
         id: determine
         uses: ./
         with:
-          auto-shard: true
+          auto-shard-matrix: true
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
 
   run-tests:
     runs-on: ubuntu-latest
@@ -54,7 +55,9 @@ jobs:
         id: shard
         uses: ./
         with:
-          auto-shard: true
+          max-shards: ${{ fromJson(needs.determine-shards.outputs.matrix) | length }}
+          algorithm: round-robin
+          test-pattern: 'test-fixtures/**/*Test.scala,test-fixtures/**/*Spec.scala,test-fixtures/**/Test*.scala,test-fixtures/**/Spec*.scala'
       - name: Verify sharding
         run: |
           echo "=== Shard ${{ matrix.shard }}/${{ steps.shard.outputs.total-shards }} ==="

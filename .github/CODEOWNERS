@@ -1,0 +1,6 @@
+# CODEOWNERS file
+# This file defines code owners for this repository
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# All files are owned by juanri0s
+* @juanri0s

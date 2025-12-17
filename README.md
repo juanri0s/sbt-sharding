@@ -74,12 +74,12 @@ jobs:
 
 ## Inputs
 
-| Input          | Description                                                                                                       | Required | Default                                                       |
-| -------------- | ----------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------- |
-| `max-shards`   | Maximum number of shards to split tests into                                                                      | Yes      | -                                                             |
-| `shard-number` | Current shard number (1-indexed). Should match `matrix.shard` when using matrix strategy. Defaults to 1.      | No       | `1`                                                           |
-| `algorithm`    | Sharding algorithm to use                                                                                         | No       | `round-robin`                                                 |
-| `test-pattern` | Comma-separated glob patterns for test files                                                                      | No       | `**/*Test.scala,**/*Spec.scala,**/Test*.scala,**/Spec*.scala` |
+| Input          | Description                                                                                                                | Required | Default                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------- |
+| `max-shards`   | Maximum number of shards to split tests into                                                                               | Yes      | -                                                             |
+| `shard-number` | Current shard number (1-indexed). Should match `matrix.shard` when using matrix strategy. Defaults to 1.                   | No       | `1`                                                           |
+| `algorithm`    | Sharding algorithm to use                                                                                                  | No       | `round-robin`                                                 |
+| `test-pattern` | Comma-separated glob patterns for test files                                                                               | No       | `**/*Test.scala,**/*Spec.scala,**/Test*.scala,**/Spec*.scala` |
 | `project-path` | Optional project directory path to filter test files. If provided, only test files within this directory will be included. | No       | -                                                             |
 
 ## Outputs

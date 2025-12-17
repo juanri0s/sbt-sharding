@@ -1,11 +1,11 @@
 {
-  "name": "sbt-test-sharding",
+  "name": "sbt-sharding",
   "version": "0.0.1",
   "type": "module",
   "description": "GitHub Action for automatically sharding Scala tests",
-  "repository": "https://github.com/juanri0s/sbt-test-sharding",
-  "homepage": "https://github.com/juanri0s/sbt-test-sharding",
-  "bugs": "https://github.com/juanri0s/sbt-test-sharding/issues",
+  "repository": "https://github.com/juanri0s/sbt-sharding",
+  "homepage": "https://github.com/juanri0s/sbt-sharding",
+  "bugs": "https://github.com/juanri0s/sbt-sharding/issues",
   "license": "MIT",
   "author": "juanri0s",
   "keywords": [

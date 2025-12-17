@@ -3,39 +3,39 @@
 ## Setup
 
 ```bash
-pnpm --dir /path/to/sbt-test-sharding install
+pnpm --dir /path/to/sbt-sharding install
 ```
 
 ## Development
 
 ```bash
 # Build the action
-pnpm --dir /path/to/sbt-test-sharding build
+pnpm --dir /path/to/sbt-sharding build
 
 # Run tests
-pnpm --dir /path/to/sbt-test-sharding test
+pnpm --dir /path/to/sbt-sharding test
 
 # Run tests in watch mode
-pnpm --dir /path/to/sbt-test-sharding test:watch
+pnpm --dir /path/to/sbt-sharding test:watch
 
 # Run tests with coverage
-pnpm --dir /path/to/sbt-test-sharding test:coverage
+pnpm --dir /path/to/sbt-sharding test:coverage
 ```
 
 ## Code Quality
 
 ```bash
 # Lint code
-pnpm --dir /path/to/sbt-test-sharding lint
+pnpm --dir /path/to/sbt-sharding lint
 
 # Fix linting issues
-pnpm --dir /path/to/sbt-test-sharding lint:fix
+pnpm --dir /path/to/sbt-sharding lint:fix
 
 # Format code
-pnpm --dir /path/to/sbt-test-sharding format
+pnpm --dir /path/to/sbt-sharding format
 
 # Check formatting
-pnpm --dir /path/to/sbt-test-sharding format:check
+pnpm --dir /path/to/sbt-sharding format:check
 ```
 
 ## Testing

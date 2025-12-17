@@ -618,6 +618,27 @@ describe('run', () => {
     expect(mockCore.warning).not.toHaveBeenCalled();
   });
 
+  it('should warn when no valid test commands generated', async () => {
+    mockCore.getInput.mockImplementation((key: string) => {
+      if (key === 'max-shards') return '1';
+      if (key === 'shard-number') return '1';
+      if (key === 'algorithm') return 'round-robin';
+      if (key === 'test-pattern') return '**/*Test.scala';
+      return '';
+    });
+
+    // Use files that can't be converted to SBT commands (no test directory pattern)
+    mockGlob.mockResolvedValue(['invalid/path/Test1.scala']);
+
+    await run();
+
+    expect(mockCore.warning).toHaveBeenCalledWith(
+      'No valid test commands generated for this shard'
+    );
+    expect(mockCore.setOutput).toHaveBeenCalledWith('test-commands', '');
+    expect(mockCore.setOutput).toHaveBeenCalledWith('test-files', 'invalid/path/Test1.scala');
+  });
+
   it('should handle error and call setFailed', async () => {
     mockCore.getInput.mockImplementation(() => {
       throw new Error('Input error');

@@ -25,7 +25,7 @@ jobs:
 
       - name: Shard Tests
         id: shard
-        uses: juanri0s/sbt-test-sharding@v1 # Pin to exact commit SHA for production
+        uses: juanri0s/sbt-sharding@v1 # Pin to exact commit SHA for production
         with:
           max-shards: 4
           shard-number: ${{ matrix.shard }}
@@ -56,7 +56,7 @@ jobs:
 
       - name: Shard Tests
         id: shard
-        uses: juanri0s/sbt-test-sharding@v1 # Pin to exact commit SHA for production
+        uses: juanri0s/sbt-sharding@v1 # Pin to exact commit SHA for production
         with:
           max-shards: 5
           shard-number: ${{ matrix.shard }}
@@ -158,7 +158,7 @@ jobs:
         uses: olafurpg/setup-scala@v13 # Pin to exact commit SHA for production
       - name: Shard Tests
         id: shard
-        uses: juanri0s/sbt-test-sharding@v1 # Pin to exact commit SHA for production
+        uses: juanri0s/sbt-sharding@v1 # Pin to exact commit SHA for production
         with:
           max-shards: 3
           shard-number: ${{ matrix.shard }}

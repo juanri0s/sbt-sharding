@@ -18,14 +18,14 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4] # Number of shards
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4 # Pin to exact commit SHA for production
 
       - name: Setup Scala
-        uses: olafurpg/setup-scala@v13
+        uses: olafurpg/setup-scala@v13 # Pin to exact commit SHA for production
 
       - name: Shard Tests
         id: shard
-        uses: ./
+        uses: juanri0s/sbt-test-sharding@v1 # Pin to exact commit SHA for production
         with:
           max-shards: 4
           shard-number: ${{ matrix.shard }}
@@ -49,14 +49,14 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4 # Pin to exact commit SHA for production
 
       - name: Setup Scala
-        uses: olafurpg/setup-scala@v13
+        uses: olafurpg/setup-scala@v13 # Pin to exact commit SHA for production
 
       - name: Shard Tests
         id: shard
-        uses: ./
+        uses: juanri0s/sbt-test-sharding@v1 # Pin to exact commit SHA for production
         with:
           max-shards: 5
           shard-number: ${{ matrix.shard }}
@@ -136,7 +136,38 @@ pnpm install
 pnpm run build
 ```
 
-When using this action from the same repository (`uses: ./`), build it first or commit the `dist/` directory.
+### Monorepo Example
+
+For monorepos with multiple projects, use the `project-path` input to scope test discovery to a specific project directory:
+
+```yaml
+name: Test Monorepo
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: [projectA, projectB]
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4 # Pin to exact commit SHA for production
+      - name: Setup Scala
+        uses: olafurpg/setup-scala@v13 # Pin to exact commit SHA for production
+      - name: Shard Tests
+        id: shard
+        uses: juanri0s/sbt-test-sharding@v1 # Pin to exact commit SHA for production
+        with:
+          max-shards: 3
+          shard-number: ${{ matrix.shard }}
+          project-path: ${{ matrix.project }}
+          test-pattern: '**/*Test.scala,**/*Spec.scala'
+      - name: Run Tests
+        if: steps.shard.outputs.test-files != ''
+        run: sbt ${{ steps.shard.outputs.test-commands }}
+```
 
 ## License
 

@@ -1,6 +1,9 @@
 name: 'SBT Test Sharding'
 description: 'Automatically shard Scala tests for parallel execution in CI'
 author: 'juanri0s'
+branding:
+  icon: 'box'
+  color: 'blue'
 inputs:
   max-shards:
     description: 'Maximum number of shards to split tests into'

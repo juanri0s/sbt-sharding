@@ -322,7 +322,7 @@ export async function run(): Promise<void> {
 
     const totalShards = shards.length;
     const shardIndex = Math.min(currentShard - 1, totalShards - 1);
-    const currentShardFiles = shards[shardIndex];
+    const currentShardFiles = shards[shardIndex] || [];
 
     core.info(`Total shards: ${totalShards}`);
     core.info(`\nShard distribution:`);
@@ -335,6 +335,9 @@ export async function run(): Promise<void> {
 
     core.info(`\nCurrent shard: ${currentShard} (0-indexed: ${shardIndex})`);
     core.info(`Test files in this shard: ${currentShardFiles.length}`);
+    if (currentShardFiles.length === 0) {
+      core.warning(`Shard ${currentShard} has no test files assigned`);
+    }
     core.setOutput('total-shards', totalShards.toString());
     core.setOutput('test-files', currentShardFiles.join(','));
     core.setOutput(
@@ -342,15 +345,26 @@ export async function run(): Promise<void> {
       JSON.stringify(Array.from({ length: totalShards }, (_, i) => i + 1))
     );
 
-    const testCommands = currentShardFiles.map(testFileToSbtCommand);
+    const testCommands = currentShardFiles
+      .map(testFileToSbtCommand)
+      .filter((cmd) => cmd.length > 0);
     const finalCommands = testCommands.join(' ');
 
     core.setOutput('test-commands', finalCommands);
 
-    core.exportVariable('SBT_TEST_FILES', currentShardFiles.join(','));
-    core.exportVariable('SBT_TEST_COMMANDS', testCommands.join(' '));
+    if (currentShardFiles.length > 0) {
+      core.exportVariable('SBT_TEST_FILES', currentShardFiles.join(','));
+      core.exportVariable('SBT_TEST_COMMANDS', testCommands.join(' '));
+    } else {
+      core.exportVariable('SBT_TEST_FILES', '');
+      core.exportVariable('SBT_TEST_COMMANDS', '');
+    }
 
-    core.info(`\nCommand: sbt ${finalCommands}`);
+    if (finalCommands) {
+      core.info(`\nCommand: sbt ${finalCommands}`);
+    } else {
+      core.warning('No valid test commands generated for this shard');
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     core.setFailed(errorMessage);

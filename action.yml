@@ -1,4 +1,4 @@
-name: 'SBT Test Sharding'
+name: 'sbt-sharding'
 description: 'Automatically shard Scala tests for parallel execution in CI'
 author: 'juanri0s'
 branding:

@@ -1,4 +1,4 @@
-# SBT Test Sharding
+# sbt-sharding
 
 GitHub Action that automatically shards Scala tests for parallel execution in CI.
 
@@ -6,7 +6,7 @@ GitHub Action that automatically shards Scala tests for parallel execution in CI
 
 ### Basic Example
 
-````yaml
+```yaml
 name: Test
 
 on: [push, pull_request]
@@ -172,4 +172,3 @@ jobs:
 ## License
 
 MIT
-````
